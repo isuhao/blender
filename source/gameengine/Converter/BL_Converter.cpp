@@ -74,7 +74,6 @@ extern "C" {
 #  include "BKE_report.h"
 }
 
-#include "BLI_task.h"
 #include "CM_Message.h"
 
 #include <cstring>
@@ -125,7 +124,6 @@ BL_Converter::BL_Converter(Main *maggie, KX_KetsjiEngine *engine, bool alwaysUse
 	m_camZoom(camZoom)
 {
 	BKE_main_id_tag_all(maggie, LIB_TAG_DOIT, false);  // avoid re-tagging later on
-	m_threadinfo.m_pool = BLI_task_pool_create(engine->GetTaskScheduler(), nullptr);
 }
 
 BL_Converter::~BL_Converter()
@@ -136,11 +134,6 @@ BL_Converter::~BL_Converter()
 	}
 
 	m_DynamicMaggie.clear();
-
-	/* Thread infos like mutex must be freed after FreeBlendFile function.
-	   Because it needs to lock the mutex, even if there's no active task when it's
-	   in the scene converter destructor. */
-	BLI_task_pool_free(m_threadinfo.m_pool);
 }
 
 Scene *BL_Converter::GetBlenderSceneForName(const std::string &name)
@@ -275,7 +268,7 @@ Main *BL_Converter::GetMainDynamicPath(const std::string& path) const
 
 void BL_Converter::MergeAsyncLoads()
 {
-	m_threadinfo.m_mutex.Lock();
+	m_threadInfo.m_mutex.lock();
 
 	for (KX_LibLoadStatus *libload : m_mergequeue) {
 		KX_Scene *mergeScene = libload->GetMergeScene();
@@ -292,27 +285,26 @@ void BL_Converter::MergeAsyncLoads()
 
 	m_mergequeue.clear();
 
-	m_threadinfo.m_mutex.Unlock();
+	m_threadInfo.m_mutex.unlock();
 }
 
 void BL_Converter::FinalizeAsyncLoads()
 {
 	// Finish all loading libraries.
-	BLI_task_pool_work_and_wait(m_threadinfo.m_pool);
+	m_threadInfo.m_group.wait();
 	// Merge all libraries data in the current scene, to avoid memory leak of unmerged scenes.
 	MergeAsyncLoads();
 }
 
 void BL_Converter::AddScenesToMergeQueue(KX_LibLoadStatus *status)
 {
-	m_threadinfo.m_mutex.Lock();
+	m_threadInfo.m_mutex.lock();
 	m_mergequeue.push_back(status);
-	m_threadinfo.m_mutex.Unlock();
+	m_threadInfo.m_mutex.unlock();
 }
 
-static void async_convert(TaskPool *pool, void *ptr, int UNUSED(threadid))
+static void async_convert(KX_LibLoadStatus *status)
 {
-	KX_LibLoadStatus *status = static_cast<KX_LibLoadStatus *>(ptr);
 	KX_KetsjiEngine *engine = status->GetEngine();
 	BL_Converter *converter = status->GetConverter();
 
@@ -470,7 +462,7 @@ KX_LibLoadStatus *BL_Converter::LinkBlendFile(BlendHandle *blendlib, const char 
 			}
 
 			status->SetBlenderScenes(blenderScenes);
-			BLI_task_pool_push(m_threadinfo.m_pool, async_convert, (void *)status, false, TASK_PRIORITY_LOW);
+			m_threadInfo.m_group.run([status]{ async_convert(status); });
 		}
 		else {
 			for (Scene *scene = (Scene *)main_newlib->scene.first; scene; scene = (Scene *)scene->id.next) {
@@ -531,9 +523,9 @@ bool BL_Converter::FreeBlendFile(Main *maggie)
 
 	// If the given library is currently in loading, we do nothing.
 	if (m_status_map.count(maggie->name)) {
-		m_threadinfo.m_mutex.Lock();
+		m_threadInfo.m_mutex.lock();
 		const bool finished = m_status_map[maggie->name]->IsFinished();
-		m_threadinfo.m_mutex.Unlock();
+		m_threadInfo.m_mutex.unlock();
 
 		if (!finished) {
 			CM_Error("Library (" << maggie->name << ") is currently being loaded asynchronously, and cannot be freed until this process is done");
