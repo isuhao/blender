@@ -444,56 +444,68 @@ void KX_KetsjiEngine::UpdateSuspendedScenes(double framestep)
 	}
 }
 
-KX_CameraRenderData KX_KetsjiEngine::GetCameraRenderData(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam,
-		const RAS_Rect& displayArea, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye,
-		unsigned short viewportIndex)
+KX_KetsjiEngine::CameraRenderData KX_KetsjiEngine::GetCameraRenderData(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam,
+                                                                       const RAS_Rect& displayArea, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye)
 {
-	KX_Camera *rendercam;
-	/* In case of stereo we must copy the camera because it is used twice with different settings
-	 * (modelview matrix). This copy use the same transform settings that the original camera
-	 * and its name is based on with the eye number in addition.
-	 */
-	const bool usestereo = (stereoMode != RAS_Rasterizer::RAS_STEREO_NOSTEREO);
-	if (usestereo) {
-		rendercam = new KX_Camera(scene, KX_Scene::m_callbacks, *camera->GetCameraData(), true);
-		rendercam->SetName("__stereo_" + camera->GetName() + "_" + std::to_string(eye) + "__");
-		rendercam->NodeSetGlobalOrientation(camera->NodeGetWorldOrientation());
-		rendercam->NodeSetWorldPosition(camera->NodeGetWorldPosition());
-		rendercam->NodeSetWorldScale(camera->NodeGetWorldScaling());
-		rendercam->NodeUpdate();
-	}
-	// Else use the native camera.
-	else {
-		rendercam = camera;
-	}
+	// Prepare override culling camera of each scenes, we don't manage stereo currently.
+	/*for (KX_Scene *scene : m_scenes) {
+		KX_Camera *overrideCullingCam = scene->GetOverrideCullingCamera();
+		if (overrideCullingCam) {
 
-	KX_Camera *cullingcam = (overrideCullingCam) ? overrideCullingCam : rendercam;
+		}
+	}*/
 
 	KX_SetActiveScene(scene);
 #ifdef WITH_PYTHON
-	scene->RunDrawingCallbacks(KX_Scene::PRE_DRAW_SETUP, rendercam);
+	scene->RunDrawingCallbacks(KX_Scene::PRE_DRAW_SETUP, camera);
 #endif
+
+	CameraRenderData cameraData;
 
 	RAS_Rect area;
 	RAS_Rect viewport;
 	// Compute the area and the viewport based on the current display area and the optional camera viewport.
-	GetSceneViewport(scene, rendercam, displayArea, area, viewport);
+	GetSceneViewport(scene, camera, displayArea, area, viewport);
+	cameraData.m_area = area;
+	cameraData.m_viewport = viewport;
+
 	// Compute the camera matrices: modelview and projection.
-	const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(stereoMode, eye, rendercam->GetWorldToCamera(), rendercam->GetCameraData()->m_perspective);
-	const mt::mat4 projmat = GetCameraProjectionMatrix(scene, rendercam, stereoMode, eye, viewport, area);
-	rendercam->SetModelviewMatrix(viewmat);
-	rendercam->SetProjectionMatrix(projmat);
+	const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(stereoMode, eye, camera->GetWorldToCamera(), camera->GetCameraData()->m_perspective);
+	const mt::mat4 projmat = GetCameraProjectionMatrix(scene, camera, stereoMode, eye, viewport, area);
+	camera->SetModelviewMatrix(viewmat);
+	camera->SetProjectionMatrix(projmat);
+	cameraData.m_viewMatrix = viewmat;
+	cameraData.m_progMatrix = projmat;
+	cameraData.m_negScale = false; //TODO
 
-	KX_CameraRenderData cameraData(rendercam, cullingcam, area, viewport, stereoMode, eye, viewportIndex);
-
-	if (usestereo) {
-		rendercam->Release();
+	KX_Camera *cullingcam;
+	if (overrideCullingCam) {
+		cullingcam = overrideCullingCam;
+		// Compute the area and the viewport based on the current display area and the optional camera viewport.
+		GetSceneViewport(scene, overrideCullingCam, displayArea, area, viewport);
+		// Compute the camera matrices: modelview and projection.
+		const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(stereoMode, eye,
+				overrideCullingCam->GetWorldToCamera(), overrideCullingCam->GetCameraData()->m_perspective);
+		const mt::mat4 projmat = GetCameraProjectionMatrix(scene, overrideCullingCam, stereoMode,
+				eye, viewport, area);
+		overrideCullingCam->SetModelviewMatrix(viewmat);
+		overrideCullingCam->SetProjectionMatrix(projmat);
 	}
+	else {
+		cullingcam = camera;
+	}
+
+	cameraData.m_position = cullingcam->NodeGetWorldPosition();
+	cameraData.m_frustum = cullingcam->GetFrustum();
+	cameraData.m_culling = cullingcam->GetFrustumCulling();
+	cameraData.m_lodFactor = cullingcam->GetLodDistanceFactor();
+	cameraData.m_stereoMode = stereoMode;
+	cameraData.m_eye = eye;
 
 	return cameraData;
 }
 
-KX_RenderData KX_KetsjiEngine::GetRenderData()
+KX_KetsjiEngine::RenderData KX_KetsjiEngine::GetRenderData()
 {
 	const RAS_Rasterizer::StereoMode stereomode = m_rasterizer->GetStereoMode();
 	const bool usestereo = (stereomode != RAS_Rasterizer::RAS_STEREO_NOSTEREO);
@@ -502,7 +514,7 @@ KX_RenderData KX_KetsjiEngine::GetRenderData()
 	                          stereomode == RAS_Rasterizer::RAS_STEREO_VINTERLACE ||
 	                          stereomode == RAS_Rasterizer::RAS_STEREO_ANAGLYPH;
 
-	KX_RenderData renderData(stereomode, renderpereye);
+	RenderData renderData(stereomode, renderpereye);
 
 	// The number of eyes to manage in case of stereo.
 	const unsigned short numeyes = (usestereo) ? 2 : 1;
@@ -515,65 +527,84 @@ KX_RenderData KX_KetsjiEngine::GetRenderData()
 		RAS_Rasterizer::RAS_OFFSCREEN_EYE_RIGHT0
 	};
 
+	FrameRenderData frameData;
+	frameData.m_ofsType = ofsType[index];
+
+	// The number of eyes to manage in case of stereo.
+	const unsigned short numeyes = (useStereo) ? 2 : 1;
+
+	// Get the eyes managed per frame.
+	std::vector<RAS_Rasterizer::StereoEye> eyes;
+	// Only one eye for unique frame.
+	if (!useStereo) {
+		eyes = {RAS_Rasterizer::RAS_STEREO_LEFTEYE};
+	}
+	// One eye per frame but different.
+	else if (renderPerEye) {
+		eyes = {(RAS_Rasterizer::StereoEye)index};
+	}
+	// Two eyes for unique frame.
+	else {
+		eyes = {RAS_Rasterizer::RAS_STEREO_LEFTEYE, RAS_Rasterizer::RAS_STEREO_RIGHTEYE};
+	}
+
 	// Pre-compute the display area used for stereo or normal rendering.
-	std::vector<RAS_Rect> displayAreas;
+	RAS_Rect displayAreas[2];
 	for (unsigned short eye = 0; eye < numeyes; ++eye) {
-		displayAreas.push_back(m_rasterizer->GetRenderArea(m_canvas, stereomode, (RAS_Rasterizer::StereoEye)eye));
-	}
-
-	// Prepare override culling camera of each scenes, we don't manage stereo currently.
-	for (KX_Scene *scene : m_scenes) {
-		KX_Camera *overrideCullingCam = scene->GetOverrideCullingCamera();
-
-		if (overrideCullingCam) {
-			RAS_Rect area;
-			RAS_Rect viewport;
-			// Compute the area and the viewport based on the current display area and the optional camera viewport.
-			GetSceneViewport(scene, overrideCullingCam, displayAreas[RAS_Rasterizer::RAS_STEREO_LEFTEYE], area, viewport);
-			// Compute the camera matrices: modelview and projection.
-			const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(stereomode, RAS_Rasterizer::RAS_STEREO_LEFTEYE,
-			                                                     overrideCullingCam->GetWorldToCamera(), overrideCullingCam->GetCameraData()->m_perspective);
-			const mt::mat4 projmat = GetCameraProjectionMatrix(scene, overrideCullingCam, stereomode,
-			                                                   RAS_Rasterizer::RAS_STEREO_LEFTEYE, viewport, area);
-			overrideCullingCam->SetModelviewMatrix(viewmat);
-			overrideCullingCam->SetProjectionMatrix(projmat);
-		}
-	}
-
-	for (unsigned short frame = 0; frame < numframes; ++frame) {
-		// Get the eyes managed per frame.
-		std::vector<RAS_Rasterizer::StereoEye> eyes;
-		// One eye per frame but different.
-		if (renderpereye) {
-			eyes = {(RAS_Rasterizer::StereoEye)frame};
-		}
-		// Two eyes for unique frame.
-		else if (usestereo) {
-			eyes = {RAS_Rasterizer::RAS_STEREO_LEFTEYE, RAS_Rasterizer::RAS_STEREO_RIGHTEYE};
-		}
-		// Only one eye for unique frame.
-		else {
-			eyes = {RAS_Rasterizer::RAS_STEREO_LEFTEYE};
-		}
-		
-		renderData.m_frameDataList.emplace_back(ofsType[frame], eyes);
+		displayAreas[eye] = m_rasterizer->GetRenderArea(m_canvas, stereoMode, (RAS_Rasterizer::StereoEye)eye);
 	}
 
 	for (KX_Scene *scene : m_scenes) {
-		renderData.m_sceneDataList.emplace_back(scene);
-		KX_SceneRenderData& sceneFrameData = renderData.m_sceneDataList.back();
+		SceneRenderData sceneData;
+		sceneData.m_scene = scene;
 
 		KX_Camera *activecam = scene->GetActiveCamera();
 		KX_Camera *overrideCullingCam = scene->GetOverrideCullingCamera();
-		unsigned int viewportIndex = 0;
 		for (KX_Camera *cam : scene->GetCameraList()) {
 			if (cam != activecam && !cam->GetViewport()) {
 				continue;
 			}
 
-			for (unsigned short eye = 0; eye < numeyes; ++eye) {
-				sceneFrameData.m_cameraDataList[eye].push_back(GetCameraRenderData(scene, cam, overrideCullingCam,
-							displayAreas[eye], stereomode, (RAS_Rasterizer::StereoEye)eye, viewportIndex++));
+			for (RAS_Rasterizer::StereoEye eye : eyes) {
+				const CameraRenderData cameraData = GetCameraRenderData(scene, cam, overrideCullingCam, displayAreas[eye], stereoMode, eye);
+				sceneData.m_cameraDataList.push_back(cameraData);
+			}
+		}
+		frameData.m_sceneDataList.push_back(sceneData);
+	}
+
+	for (unsigned short frame = 0; frame < numframes; ++frame) {
+		renderData.m_frameDataList.emplace_back(ofsType[frame]);
+		FrameRenderData& frameData = renderData.m_frameDataList.back();
+
+KX_KetsjiEngine::RenderData KX_KetsjiEngine::GetRenderData()
+{
+	const RAS_Rasterizer::StereoMode stereomode = m_rasterizer->GetStereoMode();
+	const bool usestereo = (stereomode != RAS_Rasterizer::RAS_STEREO_NOSTEREO);
+	// Set to true when each eye needs to be rendered in a separated off screen.
+	const bool renderpereye = usestereo && 
+			(stereomode == RAS_Rasterizer::RAS_STEREO_INTERLACED ||
+			 stereomode == RAS_Rasterizer::RAS_STEREO_VINTERLACE ||
+			 stereomode == RAS_Rasterizer::RAS_STEREO_ANAGLYPH);
+		
+		renderData.m_frameDataList.emplace_back(ofsType[frame], eyes);
+	}
+
+		for (KX_Scene *scene : m_scenes) {
+			frameData.m_sceneDataList.emplace_back(scene);
+			SceneRenderData& sceneFrameData = frameData.m_sceneDataList.back();
+
+			KX_Camera *activecam = scene->GetActiveCamera();
+			KX_Camera *overrideCullingCam = scene->GetOverrideCullingCamera();
+			for (KX_Camera *cam : scene->GetCameraList()) {
+				if (cam != activecam && !cam->GetViewport()) {
+					continue;
+				}
+
+				for (RAS_Rasterizer::StereoEye eye : eyes) {
+					sceneFrameData.m_cameraDataList.push_back(GetCameraRenderData(scene, cam, overrideCullingCam, displayAreas[eye],
+					                                                              stereomode, eye));
+				}
 			}
 		}
 	}
@@ -587,17 +618,12 @@ void KX_KetsjiEngine::Render()
 
 	BeginFrame();
 
-	KX_RenderData renderData = GetRenderData();
-
-	for (const KX_SceneRenderData& sceneData : renderData.m_sceneDataList) {
-		KX_Scene *scene = sceneData.m_scene;
+	for (KX_Scene *scene : m_scenes) {
 		// shadow buffers
 		RenderShadowBuffers(scene);
-		scene->RenderTextureRenderers(m_rasterizer, sceneData);
+		// Render only independent texture renderers here.
+		scene->RenderTextureRenderers(KX_TextureRendererManager::VIEWPORT_INDEPENDENT, m_rasterizer, nullptr, nullptr, RAS_Rect(), RAS_Rect());
 	}
-
-	// Update all off screen to the current canvas size.
-	m_rasterizer->UpdateOffScreens(m_canvas);
 
 	const int width = m_canvas->GetWidth();
 	const int height = m_canvas->GetHeight();
@@ -606,8 +632,7 @@ void KX_KetsjiEngine::Render()
 	m_rasterizer->SetViewport(0, 0, width, height);
 	m_rasterizer->SetScissor(0, 0, width, height);
 
-	KX_Scene *firstscene = m_scenes->GetFront();
-	const RAS_FrameSettings &framesettings = firstscene->GetFramingType();
+	const RAS_FrameSettings &framesettings = renderData.m_frameSettings;
 	// Use the framing bar color set in the Blender scenes
 	m_rasterizer->SetClearColor(framesettings.BarRed(), framesettings.BarGreen(), framesettings.BarBlue(), 1.0f);
 
@@ -634,6 +659,13 @@ void KX_KetsjiEngine::Render()
 			scene->GetWorldInfo()->UpdateWorldSettings(m_rasterizer);
 
 			m_rasterizer->SetAuxilaryClientInfo(scene);
+
+			if (!sceneFrameData.m_textureDataList.empty()) {
+				for (const TextureRenderData& textureData : sceneFrameData.m_textureDataList) {
+					RenderTexture(scene, textureData);
+				}
+				offScreen->Bind();
+			}
 
 			// Render the eyes handled by the frame.
 			for (RAS_Rasterizer::StereoEye eye : frameData.m_eyes) {
@@ -782,6 +814,10 @@ void KX_KetsjiEngine::UpdateAnimations(KX_Scene *scene)
 
 void KX_KetsjiEngine::RenderShadowBuffers(KX_Scene *scene)
 {
+	if (m_rasterizer->GetDrawingMode() != RAS_Rasterizer::RAS_TEXTURED) {
+		return;
+	}
+
 	EXP_ListValue<KX_LightObject> *lightlist = scene->GetLightList();
 
 	m_rasterizer->SetAuxilaryClientInfo(scene);
@@ -790,35 +826,34 @@ void KX_KetsjiEngine::RenderShadowBuffers(KX_Scene *scene)
 		light->Update();
 	}
 
-	if (m_rasterizer->GetDrawingMode() == RAS_Rasterizer::RAS_TEXTURED) {
-		for (KX_LightObject *light : lightlist) {
-			RAS_ILightObject *raslight = light->GetLightData();
-			if (light->GetVisible() && raslight->HasShadowBuffer() && raslight->NeedShadowUpdate()) {
-				/* make temporary camera */
-				RAS_CameraData camdata = RAS_CameraData();
-				KX_Camera *cam = new KX_Camera(scene, KX_Scene::m_callbacks, camdata, true);
-				cam->SetName("__shadow__cam__");
+	for (KX_LightObject *light : lightlist) {
+		RAS_ILightObject *raslight = light->GetLightData();
+		if (light->GetVisible() && raslight->HasShadowBuffer() && raslight->NeedShadowUpdate()) {
+			mt::mat4 viewmat;
+			mt::mat4 projmat;
+			raslight->GetShadowMatrix(viewmat, projmat);
+			/* setup rasterizer transformations */
+			m_rasterizer->SetViewMatrix(viewmat);
+			m_rasterizer->SetProjectionMatrix(projmat);
 
-				mt::mat3x4 camtrans;
+			const SG_Frustum frustum(projmat * viewmat);
+			const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(frustum, raslight->GetShadowLayer());
 
-				/* binds framebuffer object, sets up camera .. */
-				raslight->BindShadowBuffer(m_canvas, cam, camtrans);
+			m_logger.StartLog(tc_animations, m_kxsystem->GetTimeInSeconds());
+			UpdateAnimations(scene);
+			m_logger.StartLog(tc_rasterizer, m_kxsystem->GetTimeInSeconds());
 
-				const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(cam, raslight->GetShadowLayer());
+			/* binds framebuffer object */
+			raslight->BindShadowBuffer();
+			/* render */
+			m_rasterizer->Clear(RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT | RAS_Rasterizer::RAS_COLOR_BUFFER_BIT);
 
-				m_logger.StartLog(tc_animations);
-				UpdateAnimations(scene);
-				m_logger.StartLog(tc_rasterizer);
+			const mt::mat3x4 camtrans = mt::mat4::ToAffineTransform(viewmat).Inverse();
+			// Send a nullptr off screen because the viewport is binding it's using its own private one.
+			scene->RenderBuckets(objects, RAS_Rasterizer::RAS_SHADOW, camtrans, 0, m_rasterizer, nullptr);
 
-				/* render */
-				m_rasterizer->Clear(RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT | RAS_Rasterizer::RAS_COLOR_BUFFER_BIT);
-				// Send a nullptr off screen because the viewport is binding it's using its own private one.
-				scene->RenderBuckets(objects, RAS_Rasterizer::RAS_SHADOW, camtrans, 0, m_rasterizer, nullptr);
-
-				/* unbind framebuffer object, restore drawmode, free camera */
-				raslight->UnbindShadowBuffer();
-				cam->Release();
-			}
+			/* unbind framebuffer object, free camera */
+			raslight->UnbindShadowBuffer();
 		}
 	}
 }
@@ -826,7 +861,7 @@ void KX_KetsjiEngine::RenderShadowBuffers(KX_Scene *scene)
 mt::mat4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoMode stereoMode,
                                                     RAS_Rasterizer::StereoEye eye, const RAS_Rect& viewport, const RAS_Rect& area) const
 {
-	if (cam->hasValidProjectionMatrix()) {
+	if (cam->hasValidProjectionMatrix()) { // TODO manage eye
 		return cam->GetProjectionMatrix();
 	}
 
@@ -903,19 +938,13 @@ mt::mat4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *
 void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const KX_CameraRenderData& cameraFrameData, RAS_OffScreen *offScreen,
                                    unsigned short pass, bool isFirstScene)
 {
-	KX_Camera *rendercam = cameraFrameData.m_renderCamera;
-	KX_Camera *cullingcam = cameraFrameData.m_cullingCamera;
 	const RAS_Rect &viewport = cameraFrameData.m_viewport;
 
 	KX_SetActiveScene(scene);
 
 	// set the viewport for this frame and scene
-	const int left = viewport.GetLeft();
-	const int bottom = viewport.GetBottom();
-	const int width = viewport.GetWidth();
-	const int height = viewport.GetHeight();
-	m_rasterizer->SetViewport(left, bottom, width, height);
-	m_rasterizer->SetScissor(left, bottom, width, height);
+	m_rasterizer->SetViewport(viewport);
+	m_rasterizer->SetScissor(viewport);
 
 	/* Clear the depth after setting the scene viewport/scissor
 	 * if it's not the first render pass. */
@@ -925,8 +954,8 @@ void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const KX_CameraRenderData& c
 
 	m_rasterizer->SetEye(cameraFrameData.m_eye);
 
-	m_rasterizer->SetProjectionMatrix(rendercam->GetProjectionMatrix());
-	m_rasterizer->SetViewMatrix(rendercam->GetModelviewMatrix(), rendercam->NodeGetWorldScaling());
+	m_rasterizer->SetProjectionMatrix(cameraFrameData.m_progMatrix);
+	m_rasterizer->SetViewMatrix(cameraFrameData.m_viewMatrix, cameraFrameData.m_negScale);
 
 	if (isFirstScene) {
 		KX_WorldInfo *worldInfo = scene->GetWorldInfo();
@@ -935,17 +964,12 @@ void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const KX_CameraRenderData& c
 		worldInfo->RenderBackground(m_rasterizer);
 	}
 
-	// The following actually reschedules all vertices to be
-	// redrawn. There is a cache between the actual rescheduling
-	// and this call though. Visibility is imparted when this call
-	// runs through the individual objects.
-
 	m_logger.StartLog(tc_scenegraph);
 
-	const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(cullingcam, 0);
+	const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(cameraFrameData.m_culling, cameraFrameData.m_frustum, 0);
 
 	// update levels of detail
-	scene->UpdateObjectLods(cullingcam, objects);
+	scene->UpdateObjectLods(cameraFrameData.m_position, cameraFrameData.m_lodFactor, objects);
 
 	m_logger.StartLog(tc_animations);
 	UpdateAnimations(scene);
@@ -960,11 +984,10 @@ void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const KX_CameraRenderData& c
 
 #ifdef WITH_PYTHON
 	// Run any pre-drawing python callbacks
-	scene->RunDrawingCallbacks(KX_Scene::PRE_DRAW, rendercam);
+// 	scene->RunDrawingCallbacks(KX_Scene::PRE_DRAW, rendercam); // TODO
 #endif
 
-	scene->RenderBuckets(objects, m_rasterizer->GetDrawingMode(), rendercam->GetWorldToCamera(),
-			cameraFrameData.m_index, m_rasterizer, offScreen);
+	scene->RenderBuckets(objects, m_rasterizer->GetDrawingMode(), cameraFrameData.m_camTrans, cameraFrameData.m_index, m_rasterizer, offScreen);
 
 	if (scene->GetPhysicsEnvironment()) {
 		scene->GetPhysicsEnvironment()->DebugDrawWorld();
@@ -1171,7 +1194,7 @@ void KX_KetsjiEngine::RenderDebugProperties()
 
 void KX_KetsjiEngine::DrawDebugCameraFrustum(KX_Scene *scene, const KX_CameraRenderData& cameraFrameData)
 {
-	if (m_showCameraFrustum == KX_DebugOption::DISABLE) {
+	/*if (m_showCameraFrustum == KX_DebugOption::DISABLE) {
 		return;
 	}
 
@@ -1184,12 +1207,12 @@ void KX_KetsjiEngine::DrawDebugCameraFrustum(KX_Scene *scene, const KX_CameraRen
 			                                                   cameraFrameData.m_viewport, cameraFrameData.m_area);
 			debugDraw.DrawCameraFrustum(projmat * viewmat);
 		}
-	}
+	} TODO */
 }
 
 void KX_KetsjiEngine::DrawDebugShadowFrustum(KX_Scene *scene)
 {
-	if (m_showShadowFrustum == KX_DebugOption::DISABLE) {
+	/*if (m_showShadowFrustum == KX_DebugOption::DISABLE) {
 		return;
 	}
 
@@ -1202,7 +1225,7 @@ void KX_KetsjiEngine::DrawDebugShadowFrustum(KX_Scene *scene)
 
 			debugDraw.DrawCameraFrustum(projmat * viewmat);
 		}
-	}
+	} TODO */
 }
 
 EXP_ListValue<KX_Scene> *KX_KetsjiEngine::CurrentScenes()

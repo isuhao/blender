@@ -57,4 +57,67 @@ struct KX_RenderData
 	std::vector<KX_FrameRenderData> m_frameDataList;
 };
 
+// Storing information for off screen rendering of shadow and texture map.
+	struct TextureRenderData
+	{
+		enum {
+			RENDER_WORLD,
+			UPDATE_LOD
+		} m_mode;
+
+		mt::mat4 m_viewMatrix;
+		mt::mat4 m_progMatrix;
+		mt::mat3x4 m_camTrans;
+		mt::vec3 m_position;
+
+		SG_Frustum m_frustum;
+
+		float m_lodFactor;
+
+		std::function<void (unsigned short)> m_bind;
+		std::function<void (unsigned short)> m_unbind;
+	};
+
+	struct CameraRenderData
+	{
+		CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area, const RAS_Rect& viewport,
+				RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye);
+		CameraRenderData(const CameraRenderData& other);
+		~CameraRenderData();
+
+		/// Rendered camera, could be a temporary camera in case of stereo.
+		KX_Camera *m_renderCamera;
+		KX_Camera *m_cullingCamera;
+		RAS_Rect m_area;
+		RAS_Rect m_viewport;
+		RAS_Rasterizer::StereoMode m_stereoMode;
+		RAS_Rasterizer::StereoEye m_eye;
+	};
+
+	struct SceneRenderData
+	{
+		SceneRenderData(KX_Scene *scene);
+
+		KX_Scene *m_scene;
+		std::vector<CameraRenderData> m_cameraDataList;
+	};
+
+	/// Data used to render a frame.
+	struct FrameRenderData
+	{
+		FrameRenderData(RAS_Rasterizer::OffScreenType ofsType);
+
+		RAS_Rasterizer::OffScreenType m_ofsType;
+		std::vector<SceneRenderData> m_sceneDataList;
+	};
+
+	struct RenderData
+	{
+		RenderData(RAS_Rasterizer::StereoMode stereoMode, bool renderPerEye);
+
+		RAS_Rasterizer::StereoMode m_stereoMode;
+		bool m_renderPerEye;
+		std::vector<FrameRenderData> m_frameDataList;
+	};
+
 #endif  // __KX_RENDER_DATA_H__

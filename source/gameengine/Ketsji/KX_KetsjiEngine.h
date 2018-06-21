@@ -38,6 +38,7 @@
 #include "KX_RenderData.h"
 #include "EXP_Python.h"
 #include "KX_WorldInfo.h"
+#include "SG_Frustum.h"
 #include "RAS_CameraData.h"
 #include "RAS_Rasterizer.h"
 #include "RAS_DebugDraw.h"
@@ -235,6 +236,7 @@ private:
 	KX_CameraRenderData GetCameraRenderData(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam,
 			const RAS_Rect& displayArea, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye,
 			unsigned short viewportIndex);
+	FrameRenderData GetFrameRenderData(RAS_Rasterizer::StereoMode stereoMode, bool useStereo, bool renderPerEye, unsigned short index);
 	/// Compute frame render data per eyes (in case of stereo), scenes and camera.
 	KX_RenderData GetRenderData();
 
