@@ -51,10 +51,9 @@ KX_Camera::KX_Camera(void *sgReplicationInfo,
 	m_camdata(camdata),
 	m_projection_matrix(mt::mat4::Identity()),
 	m_modelview_matrix(mt::mat4::Identity()),
-	m_dirty(true),
-	m_normalized(false),
+	m_dirtyFrustum(true),
 	m_frustum_culling(frustum_culling),
-	m_set_projection_matrix(false),
+	m_dirtyProjection(true),
 	m_lodDistanceFactor(1.0f),
 	m_activityCulling(false),
 	m_showDebugCameraFrustum(false)
@@ -102,11 +101,9 @@ mt::mat3x4 KX_Camera::GetCameraToWorld() const
 void KX_Camera::SetProjectionMatrix(const mt::mat4 & mat)
 {
 	m_projection_matrix = mat;
-	m_dirty = true;
-	m_set_projection_matrix = true;
+	m_dirtyFrustum = true;
+	m_dirtyProjection = false;
 }
-
-
 
 /**
  * Sets the modelview matrix that is used by the rasterizer.
@@ -114,10 +111,8 @@ void KX_Camera::SetProjectionMatrix(const mt::mat4 & mat)
 void KX_Camera::SetModelviewMatrix(const mt::mat4 & mat)
 {
 	m_modelview_matrix = mat;
-	m_dirty = true;
+	m_dirtyFrustum = true;
 }
-
-
 
 /**
  * Gets the projection matrix that is used by the rasterizer.
@@ -140,14 +135,13 @@ const mt::mat4& KX_Camera::GetModelviewMatrix() const
 
 bool KX_Camera::hasValidProjectionMatrix() const
 {
-	return m_set_projection_matrix;
+	return !m_dirtyProjection;
 }
 
-void KX_Camera::InvalidateProjectionMatrix(bool valid)
+void KX_Camera::InvalidateProjectionMatrix()
 {
-	m_set_projection_matrix = valid;
+	m_dirtyProjection = true;
 }
-
 
 /**
  * These getters retrieve the clip data and the focal length
@@ -258,10 +252,20 @@ void KX_Camera::SetActivityCulling(bool enable)
 
 void KX_Camera::ExtractFrustum()
 {
-	if (m_dirty) {
+	if (m_dirtyFrustum) {
 		m_frustum = SG_Frustum(m_projection_matrix * m_modelview_matrix);
-		m_dirty = false;
+		m_dirtyFrustum = false;
 	}
+}
+
+const RAS_FrameFrustum& KX_Camera::GetFrameFrustum() const
+{
+	return m_frameFrustum;
+}
+
+void KX_Camera::SetFrameFrustum(const RAS_FrameFrustum& frameFrustum)
+{
+	m_frameFrustum = frameFrustum;
 }
 
 const SG_Frustum& KX_Camera::GetFrustum()
@@ -277,12 +281,12 @@ bool KX_Camera::GetFrustumCulling() const
 
 void KX_Camera::EnableViewport(bool viewport)
 {
-	InvalidateProjectionMatrix(false); // We need to reset projection matrix
 	m_camdata.m_viewport = viewport;
 }
 
 void KX_Camera::SetViewport(int left, int bottom, int right, int top)
 {
+	m_dirtyProjection = true;
 	m_camdata.m_viewportleft = left;
 	m_camdata.m_viewportbottom = bottom;
 	m_camdata.m_viewportright = right;
@@ -548,7 +552,7 @@ int KX_Camera::pyattr_set_perspective(EXP_PyObjectPlus *self_v, const EXP_PYATTR
 	}
 
 	self->m_camdata.m_perspective = param;
-	self->InvalidateProjectionMatrix();
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -568,7 +572,7 @@ int KX_Camera::pyattr_set_lens(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_D
 	}
 
 	self->m_camdata.m_lens = param;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -596,7 +600,7 @@ int KX_Camera::pyattr_set_fov(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DE
 	float lens = width / (2.0f * tanf(0.5f * DEG2RADF(fov)));
 
 	self->m_camdata.m_lens = lens;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -616,7 +620,7 @@ int KX_Camera::pyattr_set_ortho_scale(EXP_PyObjectPlus *self_v, const EXP_PYATTR
 	}
 
 	self->m_camdata.m_scale = param;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -636,7 +640,7 @@ int KX_Camera::pyattr_set_near(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_D
 	}
 
 	self->m_camdata.m_clipstart = param;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -656,7 +660,7 @@ int KX_Camera::pyattr_set_far(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DE
 	}
 
 	self->m_camdata.m_clipend = param;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -676,7 +680,7 @@ int KX_Camera::pyattr_set_shift_x(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUT
 	}
 
 	self->m_camdata.m_shift_x = param;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 
@@ -696,7 +700,7 @@ int KX_Camera::pyattr_set_shift_y(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUT
 	}
 
 	self->m_camdata.m_shift_y = param;
-	self->m_set_projection_matrix = false;
+	self->m_dirtyProjection = true;
 	return PY_SET_ATTR_SUCCESS;
 }
 

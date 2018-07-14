@@ -124,7 +124,6 @@ set(SRC
 	KX_RadarSensor.cpp
 	KX_RayCast.cpp
 	KX_RaySensor.cpp
-	KX_RenderData.cpp
 	KX_AddObjectActuator.cpp
 	KX_DynamicActuator.cpp
 	KX_EndObjectActuator.cpp

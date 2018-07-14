@@ -141,10 +141,9 @@ void KX_TextureRendererManager::RenderRenderer(RAS_Rasterizer *rasty, KX_Texture
 		 */
 
 		const KX_CameraRenderData *cameraData = cameraDatas[layer];
-		KX_Camera *sceneCamera = cameraData->m_renderCamera;
 
 		// Set camera setting shared by all the renderer's faces.
-		if (!renderer->Prepare(sceneCamera, m_camera)) {
+		if (!renderer->Prepare(cameraData->m_viewMatrix, m_camera)) {
 			continue;
 		}
 
@@ -152,8 +151,8 @@ void KX_TextureRendererManager::RenderRenderer(RAS_Rasterizer *rasty, KX_Texture
 		* or if the projection matrix is not computed yet,
 		* we have to compute projection matrix.
 		*/
-		const mt::mat4 projmat = renderer->GetProjectionMatrix(rasty, m_scene, sceneCamera,
-				cameraData->m_viewport, cameraData->m_area, cameraData->m_stereoMode, cameraData->m_eye);
+		const mt::mat4 projmat = renderer->GetProjectionMatrix(rasty, cameraData->m_frameFrustum,
+				cameraData->m_stereoMode, cameraData->m_eye);
 		m_camera->SetProjectionMatrix(projmat);
 		rasty->SetProjectionMatrix(projmat);
 
