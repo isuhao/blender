@@ -471,10 +471,15 @@ CcdPhysicsEnvironment::CcdPhysicsEnvironment(PHY_SolverType solverType, bool use
 	SetGravity(0.0f, 0.0f, -9.81f);
 }
 
-void CcdPhysicsEnvironment::AddCcdPhysicsController(CcdPhysicsController *ctrl)
+void CcdPhysicsEnvironment::AddPhysicsController(CcdPhysicsController *ctrl)
+{
+	m_controllers.insert(ctrl);
+}
+
+void CcdPhysicsEnvironment::ActivatePhysicsController(CcdPhysicsController *ctrl)
 {
 	// the controller is already added we do nothing
-	if (!m_controllers.insert(ctrl).second) {
+	if (!m_activeControllers.insert(ctrl).second) {
 		return;
 	}
 
@@ -601,17 +606,22 @@ void CcdPhysicsEnvironment::RestoreConstraint(CcdPhysicsController *ctrl, btType
 	BLI_assert(other != nullptr);
 
 	// Avoid add constraint if one of the objects are not available.
-	if (IsActiveCcdPhysicsController(other)) {
+	if (IsActivePhysicsController(other)) {
 		userData->SetActive(true);
 		m_dynamicsWorld->addConstraint(con, userData->GetDisableCollision());
 	}
 }
 
-bool CcdPhysicsEnvironment::RemoveCcdPhysicsController(CcdPhysicsController *ctrl, bool freeConstraints)
+void CcdPhysicsEnvironment::RemovePhysicsController(CcdPhysicsController *ctrl)
+{
+	m_controllers.erase(ctrl);
+}
+
+void CcdPhysicsEnvironment::DeactivatePhysicsController(CcdPhysicsController *ctrl, bool freeConstraints)
 {
 	// if the physics controller is already removed we do nothing
-	if (!m_controllers.erase(ctrl)) {
-		return false;
+	if (!m_activeControllers.erase(ctrl)) {
+		return;
 	}
 
 	//also remove constraint
@@ -646,11 +656,9 @@ bool CcdPhysicsEnvironment::RemoveCcdPhysicsController(CcdPhysicsController *ctr
 			}
 		}
 	}
-
-	return true;
 }
 
-void CcdPhysicsEnvironment::UpdateCcdPhysicsController(CcdPhysicsController *ctrl, btScalar newMass, int newCollisionFlags, short int newCollisionGroup, short int newCollisionMask)
+void CcdPhysicsEnvironment::UpdatePhysicsController(CcdPhysicsController *ctrl, btScalar newMass, int newCollisionFlags, short int newCollisionGroup, short int newCollisionMask)
 {
 	// this function is used when the collisionning group of a controller is changed
 	// remove and add the collistioning object
@@ -682,7 +690,7 @@ void CcdPhysicsEnvironment::UpdateCcdPhysicsController(CcdPhysicsController *ctr
 	ctrl->m_cci.m_collisionFlags = newCollisionFlags;
 }
 
-void CcdPhysicsEnvironment::RefreshCcdPhysicsController(CcdPhysicsController *ctrl)
+void CcdPhysicsEnvironment::RefreshPhysicsController(CcdPhysicsController *ctrl)
 {
 	btCollisionObject *obj = ctrl->GetCollisionObject();
 	if (obj) {
@@ -693,12 +701,12 @@ void CcdPhysicsEnvironment::RefreshCcdPhysicsController(CcdPhysicsController *ct
 	}
 }
 
-bool CcdPhysicsEnvironment::IsActiveCcdPhysicsController(CcdPhysicsController *ctrl)
+bool CcdPhysicsEnvironment::IsActivePhysicsController(CcdPhysicsController *ctrl)
 {
-	return (m_controllers.find(ctrl) != m_controllers.end());
+	return (m_activeControllers.find(ctrl) != m_activeControllers.end());
 }
 
-void CcdPhysicsEnvironment::AddCcdGraphicController(CcdGraphicController *ctrl)
+void CcdPhysicsEnvironment::AddGraphicController(CcdGraphicController *ctrl)
 {
 	if (m_cullingTree && !ctrl->GetBroadphaseHandle()) {
 		btVector3 minAabb;
@@ -719,7 +727,7 @@ void CcdPhysicsEnvironment::AddCcdGraphicController(CcdGraphicController *ctrl)
 	}
 }
 
-void CcdPhysicsEnvironment::RemoveCcdGraphicController(CcdGraphicController *ctrl)
+void CcdPhysicsEnvironment::RemoveGraphicController(CcdGraphicController *ctrl)
 {
 	if (m_cullingTree) {
 		btBroadphaseProxy *bp = ctrl->GetBroadphaseHandle();
@@ -730,15 +738,15 @@ void CcdPhysicsEnvironment::RemoveCcdGraphicController(CcdGraphicController *ctr
 	}
 }
 
-void CcdPhysicsEnvironment::UpdateCcdPhysicsControllerShape(CcdShapeConstructionInfo *shapeInfo)
+void CcdPhysicsEnvironment::UpdatePhysicsControllerShape(CcdShapeConstructionInfo *shapeInfo)
 {
 	for (CcdPhysicsController *ctrl : m_controllers) {
 		if (ctrl->GetShapeInfo() != shapeInfo) {
 			continue;
 		}
 
-		ctrl->ReplaceControllerShape(nullptr);
-		RefreshCcdPhysicsController(ctrl);
+		ctrl->ReplaceControllerShape();
+		RefreshPhysicsController(ctrl);
 	}
 }
 
@@ -756,24 +764,21 @@ void CcdPhysicsEnvironment::StaticSimulationSubtickCallback(btDynamicsWorld *wor
 
 void CcdPhysicsEnvironment::SimulationSubtickCallback(btScalar timeStep)
 {
-	std::set<CcdPhysicsController *>::iterator it;
-
-	for (it = m_controllers.begin(); it != m_controllers.end(); it++) {
-		(*it)->SimulationTick(timeStep);
+	for (CcdPhysicsController *ctrl : m_activeControllers) {
+		ctrl->SimulationTick(timeStep);
 	}
 }
 
 bool CcdPhysicsEnvironment::ProceedDeltaTime(double curTime, float timeStep, float interval)
 {
-	std::set<CcdPhysicsController *>::iterator it;
 	int i;
 
 	// Update Bullet global variables.
 	gDeactivationTime = m_deactivationTime;
 	gContactBreakingThreshold = m_contactBreakingThreshold;
 
-	for (it = m_controllers.begin(); it != m_controllers.end(); it++) {
-		(*it)->SynchronizeMotionStates(timeStep);
+	for (CcdPhysicsController *ctrl : m_activeControllers) {
+		ctrl->SynchronizeMotionStates(timeStep);
 	}
 
 	float subStep = timeStep / float(m_numTimeSubSteps);
@@ -783,8 +788,8 @@ bool CcdPhysicsEnvironment::ProceedDeltaTime(double curTime, float timeStep, flo
 
 	ProcessFhSprings(curTime, i * subStep);
 
-	for (it = m_controllers.begin(); it != m_controllers.end(); it++) {
-		(*it)->SynchronizeMotionStates(timeStep);
+	for (CcdPhysicsController *ctrl : m_activeControllers) {
+		ctrl->SynchronizeMotionStates(timeStep);
 	}
 
 	for (i = 0; i < m_wrapperVehicles.size(); i++) {
@@ -831,14 +836,13 @@ void CcdPhysicsEnvironment::ProcessFhSprings(double curTime, float interval)
 
 	const float step = interval * KX_GetActiveEngine()->GetTicRate();
 
-	for (it = m_controllers.begin(); it != m_controllers.end(); it++) {
-		CcdPhysicsController *ctrl = (*it);
+	for (CcdPhysicsController *ctrl : m_activeControllers) {
 		btRigidBody *body = ctrl->GetRigidBody();
 
 		if (body && (ctrl->GetConstructionInfo().m_do_fh || ctrl->GetConstructionInfo().m_do_rot_fh)) {
 			//re-implement SM_FhObject.cpp using btCollisionWorld::rayTest and info from ctrl->getConstructionInfo()
 			//send a ray from {0.0, 0.0, 0.0} towards {0.0, 0.0, -10.0}, in local coordinates
-			CcdPhysicsController *parentCtrl = ctrl->GetParentRoot();
+			CcdPhysicsController *parentCtrl = static_cast<CcdPhysicsController *>(ctrl->GetParent());
 			btRigidBody *parentBody = parentCtrl ? parentCtrl->GetRigidBody() : nullptr;
 			btRigidBody *cl_object = parentBody ? parentBody : body;
 
@@ -1963,14 +1967,12 @@ void CcdPhysicsEnvironment::MergeEnvironment(PHY_IPhysicsEnvironment *other_env)
 		return;
 	}
 
-	std::set<CcdPhysicsController *>::iterator it;
+	m_controllers.insert(other->m_controllers.begin(), other->m_controllers.end());
 
-	while (other->m_controllers.begin() != other->m_controllers.end()) {
-		it = other->m_controllers.begin();
-		CcdPhysicsController *ctrl = (*it);
-
-		other->RemoveCcdPhysicsController(ctrl, true);
-		this->AddCcdPhysicsController(ctrl);
+	while (!other->m_activeControllers.empty()) {
+		CcdPhysicsController *ctrl = *other->m_activeControllers.begin();
+		other->DeactivatePhysicsController(ctrl, true);
+		ActivatePhysicsController(ctrl);
 	}
 }
 
@@ -2003,7 +2005,8 @@ btTypedConstraint *CcdPhysicsEnvironment::GetConstraintById(int constraintId)
 void CcdPhysicsEnvironment::AddSensor(PHY_IPhysicsController *ctrl)
 {
 	CcdPhysicsController *ctrl1 = (CcdPhysicsController *)ctrl;
-	AddCcdPhysicsController(ctrl1);
+	AddPhysicsController(ctrl1);
+	ActivatePhysicsController(ctrl1);
 }
 
 bool CcdPhysicsEnvironment::RemoveCollisionCallback(PHY_IPhysicsController *ctrl)
@@ -2014,7 +2017,9 @@ bool CcdPhysicsEnvironment::RemoveCollisionCallback(PHY_IPhysicsController *ctrl
 
 void CcdPhysicsEnvironment::RemoveSensor(PHY_IPhysicsController *ctrl)
 {
-	RemoveCcdPhysicsController((CcdPhysicsController *)ctrl, true);
+	CcdPhysicsController *ctrl1 = (CcdPhysicsController *)ctrl;
+	DeactivatePhysicsController(ctrl1, true);
+	RemovePhysicsController(ctrl1);
 }
 
 void CcdPhysicsEnvironment::AddCollisionCallback(int response_class, PHY_ResponseCallback callback, void *user)
@@ -2625,7 +2630,6 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 	CcdConstructionInfo ci;
 	class CcdShapeConstructionInfo *shapeInfo = new CcdShapeConstructionInfo();
 
-	Object *blenderRoot = blenderobject->parent;
 	Object *blenderCompoundRoot = nullptr;
 	// Iterate over all parents in the object tree.
 	{
@@ -2637,7 +2641,6 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 				blenderCompoundRoot = parentit;
 			}
 			// Continue looking for root parent.
-			blenderRoot = parentit;
 
 			parentit = parentit->parent;
 		}
@@ -2649,9 +2652,8 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 		isbulletsoftbody = false;
 	}
 
-	KX_GameObject *parentRoot = nullptr;
-	if (blenderRoot) {
-		parentRoot = converter.FindGameObject(blenderRoot);
+	KX_GameObject *physicsParent = gameobj->GetPhysicsParent();
+	if (physicsParent) {
 		isbulletsoftbody = false;
 	}
 
@@ -2834,6 +2836,7 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 
 			shapeInfo->m_halfExtend /= 2.0f;
 			shapeInfo->m_halfExtend = shapeInfo->m_halfExtend.absolute();
+			CM_Debug("box : " << ToMt(shapeInfo->m_halfExtend));
 			shapeInfo->m_shapeType = PHY_SHAPE_BOX;
 			bm = shapeInfo->CreateBulletShape(ci.m_margin);
 			break;
@@ -2930,70 +2933,6 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 		return;
 	}
 
-	if (isCompoundChild) {
-		//find parent, compound shape and add to it
-		//take relative transform into account!
-		CcdPhysicsController *parentCtrl = (CcdPhysicsController *)compoundParent->GetPhysicsController();
-		BLI_assert(parentCtrl);
-
-		// only makes compound shape if parent has a physics controller (i.e not an empty, etc)
-		if (parentCtrl) {
-			CcdShapeConstructionInfo *parentShapeInfo = parentCtrl->GetShapeInfo();
-			btRigidBody *rigidbody = parentCtrl->GetRigidBody();
-			btCollisionShape *colShape = rigidbody->getCollisionShape();
-			BLI_assert(colShape->isCompound());
-			btCompoundShape *compoundShape = (btCompoundShape *)colShape;
-
-			// compute the local transform from parent, this may include several node in the chain
-			SG_Node *gameNode = gameobj->GetNode();
-			SG_Node *parentNode = compoundParent->GetNode();
-			// relative transform
-			mt::vec3 parentScale = parentNode->GetWorldScaling();
-			parentScale[0] = 1.0f / parentScale[0];
-			parentScale[1] = 1.0f / parentScale[1];
-			parentScale[2] = 1.0f / parentScale[2];
-			mt::vec3 relativeScale = gameNode->GetWorldScaling() * parentScale;
-			mt::mat3 parentInvRot = parentNode->GetWorldOrientation().Transpose();
-			mt::vec3 relativePos = parentInvRot * ((gameNode->GetWorldPosition() - parentNode->GetWorldPosition()) * parentScale);
-			mt::mat3 relativeRot = parentInvRot * gameNode->GetWorldOrientation();
-
-			shapeInfo->m_childScale = ToBullet(relativeScale);
-			bm->setLocalScaling(shapeInfo->m_childScale);
-			shapeInfo->m_childTrans.setOrigin(ToBullet(relativePos));
-			shapeInfo->m_childTrans.setBasis(ToBullet(relativeRot));
-
-			parentShapeInfo->AddShape(shapeInfo);
-			compoundShape->addChildShape(shapeInfo->m_childTrans, bm);
-
-			// Recalculate inertia for object owning compound shape.
-			if (!rigidbody->isStaticOrKinematicObject()) {
-				btVector3 localInertia;
-				const float mass = 1.0f / rigidbody->getInvMass();
-				compoundShape->calculateLocalInertia(mass, localInertia);
-				rigidbody->setMassProps(mass, localInertia * parentCtrl->GetInertiaFactor());
-			}
-			shapeInfo->Release();
-			// delete motionstate as it's not used
-			delete motionstate;
-		}
-		return;
-	}
-
-	if (hasCompoundChildren) {
-		// create a compound shape info
-		CcdShapeConstructionInfo *compoundShapeInfo = new CcdShapeConstructionInfo();
-		compoundShapeInfo->m_shapeType = PHY_SHAPE_COMPOUND;
-		compoundShapeInfo->AddShape(shapeInfo);
-		// create the compound shape manually as we already have the child shape
-		btCompoundShape *compoundShape = new btCompoundShape();
-		compoundShape->addChildShape(shapeInfo->m_childTrans, bm);
-		compoundShape->setUserPointer(compoundShapeInfo);
-		// now replace the shape
-		bm = compoundShape;
-		shapeInfo->Release();
-		shapeInfo = compoundShapeInfo;
-	}
-
 #ifdef TEST_SIMD_HULL
 	if (bm->IsPolyhedral()) {
 		PolyhedralConvexShape *polyhedron = static_cast<PolyhedralConvexShape *>(bm);
@@ -3015,7 +2954,6 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 		}
 	}
 #endif //TEST_SIMD_HULL
-
 
 	ci.m_collisionShape = bm;
 	ci.m_shapeInfo = shapeInfo;
@@ -3058,6 +2996,7 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 	ci.m_bSensor = isbulletsensor;
 	ci.m_bCharacter = isbulletchar;
 	ci.m_bGimpact = useGimpact;
+	ci.m_isCompound = hasCompoundChildren;
 	mt::vec3 scaling = gameobj->NodeGetWorldScaling();
 	ci.m_scaling.setValue(scaling[0], scaling[1], scaling[2]);
 	CcdPhysicsController *physicscontroller = new CcdPhysicsController(ci);
@@ -3070,9 +3009,10 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 
 	physicscontroller->SetNewClientInfo(&gameobj->GetClientInfo());
 
+	AddPhysicsController(physicscontroller);
 	// don't add automatically sensor object, they are added when a collision sensor is registered
 	if (!isbulletsensor && (blenderobject->lay & activeLayerBitInfo) != 0) {
-		this->AddCcdPhysicsController(physicscontroller);
+		ActivatePhysicsController(physicscontroller);
 	}
 
 	{
@@ -3091,12 +3031,19 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 		}
 	}
 
-	if (parentRoot) {
+	if (physicsParent) {
+		CcdPhysicsController *parentCtrl = physicsParent ? static_cast<CcdPhysicsController *>(physicsParent->GetPhysicsController()) : nullptr;
 		physicscontroller->SuspendDynamics(false);
+		physicscontroller->SetParent(parentCtrl);
 	}
 
-	CcdPhysicsController *parentCtrl = parentRoot ? static_cast<CcdPhysicsController *>(parentRoot->GetPhysicsController()) : nullptr;
-	physicscontroller->SetParentRoot(parentCtrl);
+
+	if (isCompoundChild) {
+		CcdPhysicsController *compoundParentCtrl = (CcdPhysicsController *)compoundParent->GetPhysicsController();
+		BLI_assert(compoundParentCtrl);
+
+		compoundParentCtrl->AddCompoundChild(physicscontroller);
+	}
 }
 
 void CcdPhysicsEnvironment::SetupObjectConstraints(KX_GameObject *obj_src, KX_GameObject *obj_dest,

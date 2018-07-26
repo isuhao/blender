@@ -541,20 +541,9 @@ KX_GameObject *KX_Scene::AddNodeReplicaObject(SG_Node *node, KX_GameObject *game
 
 	// Replicate physics controller.
 	if (gameobj->GetPhysicsController()) {
-		PHY_IMotionState *motionstate = new KX_MotionState(newobj->GetNode());
 		PHY_IPhysicsController *newctrl = gameobj->GetPhysicsController()->GetReplica();
-
-		KX_GameObject *parent = newobj->GetParent();
-		PHY_IPhysicsController *parentctrl = (parent) ? parent->GetPhysicsController() : nullptr;
-
 		newctrl->SetNewClientInfo(&newobj->GetClientInfo());
 		newobj->SetPhysicsController(newctrl);
-		newctrl->PostProcessReplica(motionstate, parentctrl);
-
-		// Child objects must be static.
-		if (parent) {
-			newctrl->SuspendDynamics();
-		}
 	}
 
 	return newobj;
@@ -860,6 +849,22 @@ KX_GameObject *KX_Scene::AddReplicaObject(KX_GameObject *originalobj, KX_GameObj
 	replica->GetNode()->UpdateWorldData();
 	// The size is correct, we can add the graphic controller to the physic engine.
 	replica->ActivateGraphicController(true);
+
+	// Finalize physics controllers with a valid scene graph hierarchy.
+	for (KX_GameObject *gameobj : m_logicHierarchicalGameObjects) {
+		PHY_IPhysicsController *physicsCtrl = gameobj->GetPhysicsController();
+		PHY_IMotionState *motionstate = new KX_MotionState(gameobj->GetNode());
+
+		KX_GameObject *physicsParent = gameobj->GetPhysicsParent();
+		PHY_IPhysicsController *parentctrl = (physicsParent) ? physicsParent->GetPhysicsController() : nullptr;
+
+		physicsCtrl->PostProcessReplica(motionstate, parentctrl);
+
+		// Child objects must be static.
+		if (gameobj->GetParent()) {
+			physicsCtrl->SuspendDynamics();
+		}
+	}
 
 	// Now replicate logic.
 	for (KX_GameObject *gameobj : m_logicHierarchicalGameObjects) {

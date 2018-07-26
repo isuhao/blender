@@ -83,6 +83,7 @@ protected:
     bool m_needs_update;
     btVector3  localScaling;
     btGImpactBoxSet m_box_set;// optionally boxset
+    btVector3  m_BoxSetScaling;
 
 	//! use this function for perfofm refit in bounding boxes
     //! use this function for perfofm refit in bounding boxes
@@ -110,6 +111,7 @@ public:
 		m_localAABB.invalidate();
 		m_needs_update = true;
 		localScaling.setValue(1.f,1.f,1.f);
+		m_BoxSetScaling.setValue(1, 1, 1);
 	}
 
 
@@ -151,6 +153,31 @@ public:
 		return m_localAABB;
 	}
 
+	virtual void calcLocalAABBAfterScaling()
+	{
+		lockChildShapes();
+		if(m_box_set.getNodeCount() == 0)
+		{
+			m_box_set.buildSet();
+		}
+		else
+		{
+			btVector3 localScaling = getLocalScaling();
+			btVector3 relativeScaling = localScaling / m_BoxSetScaling;
+			m_box_set.updateAfterScaling(relativeScaling);
+		}
+		unlockChildShapes();
+
+		m_BoxSetScaling = getLocalScaling();
+		m_localAABB = m_box_set.getGlobalBox();
+	}
+
+	SIMD_FORCE_INLINE void updateBoundAfterScaling()
+	{
+		if(!m_needs_update) return;
+		calcLocalAABBAfterScaling();
+		m_needs_update  = false;
+	}
 
     virtual int	getShapeType() const
     {
@@ -1001,6 +1028,17 @@ public:
 
     	m_needs_update = true;
     }
+
+	virtual void calcLocalAABBAfterScaling()
+	{
+		m_localAABB.invalidate();
+		int i = m_mesh_parts.size();
+		while(i--)
+		{
+			m_mesh_parts[i]->updateBoundAfterScaling();
+			m_localAABB.merge(m_mesh_parts[i]->getLocalBox());
+		}
+	}
 
 	virtual void	calculateLocalInertia(btScalar mass,btVector3& inertia) const;
 

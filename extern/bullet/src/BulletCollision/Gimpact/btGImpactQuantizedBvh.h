@@ -147,6 +147,12 @@ public:
 		return &m_node_array[index];
 	}
 
+	SIMD_FORCE_INLINE void setQuantizationBounds(const btAABB &a_Bounds, btScalar a_BoundMargin = btScalar(1.0))
+	{
+		bt_calc_quantization_parameters(
+			m_global_bound.m_min,m_global_bound.m_max,m_bvhQuantization,a_Bounds.m_min,a_Bounds.m_max, a_BoundMargin);
+	}
+
 	//!@}
 };
 
@@ -204,6 +210,15 @@ public:
 	//! this attemps to refit the box set.
 	SIMD_FORCE_INLINE void update()
 	{
+		refit();
+	}
+
+	SIMD_FORCE_INLINE void updateAfterScaling(const btVector3& a_RelativeScaling)
+	{
+		btAABB aabb = getGlobalBox();
+		aabb.m_min *= a_RelativeScaling;
+		aabb.m_max *= a_RelativeScaling;
+		m_box_tree.setQuantizationBounds(aabb);
 		refit();
 	}
 
