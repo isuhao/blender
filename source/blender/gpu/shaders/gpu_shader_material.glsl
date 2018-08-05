@@ -2283,6 +2283,49 @@ void shade_toon_spec(vec3 n, vec3 l, vec3 v, float size, float tsmooth, out floa
 	specfac = rslt;
 }
 
+// GGX For UPBGE
+
+float sqr(float a)
+{
+	return a * a;
+}
+
+float GGX(float NdotH, float roughness)
+{
+	float roughnessSqr = sqr(roughness);
+	return roughnessSqr / (M_PI * sqr(NdotH * NdotH * (roughnessSqr - 1.0) + 1.0));
+}
+
+float smithG_GGX_Optimized(float Ndotv, float roughness)
+{
+	float roughnessSqr = sqr(roughness);
+	float NdotvSqr = sqr(Ndotv);
+	return 2.0 / (1.0 + sqrt(1.0 + roughnessSqr * (1.0 - NdotvSqr) / NdotvSqr));
+}
+
+void shade_ggx_spec(vec3 n, vec3 l, vec3 v, float roughness, float ior, out float specfac)
+{
+	float NdotL = dot(n, l);
+	float NdotV = dot(n, v);
+
+	if (NdotL < 0.0 || NdotV < 0.0) {
+		specfac = 0.0;
+	}
+	else {
+		vec3 H = normalize(l + v);
+		float NdotH = dot(n, H);
+		float VdotH = dot(v, H);
+		float D = GGX(NdotH, roughness);
+		float smithG = smithG_GGX_Optimized(NdotL, roughness);
+		float G = sqr(smithG);
+		// fresnel
+		float c = VdotH;
+		float g = sqrt(ior * ior + c * c - 1.0);
+		float F = 0.5 * pow(g - c, 2.0) / pow(g + c, 2.0) * (1.0 + pow(c * (g + c) - 1.0, 2.0) / pow(c * (g - c) + 1.0, 2.0));
+		specfac = D * G * F / (4.0 * NdotL * NdotV);
+	}
+}
+
 void shade_spec_area_inp(float specfac, float inp, out float outspecfac)
 {
 	outspecfac = specfac * inp;
@@ -2809,11 +2852,6 @@ float floorfrac(float x, out int i)
 
 
 /* Principled BSDF operations */
-
-float sqr(float a)
-{
-	return a*a;
-}
 
 float schlick_fresnel(float u)
 {

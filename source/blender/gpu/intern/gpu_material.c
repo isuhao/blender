@@ -1109,6 +1109,10 @@ static void shade_one_light(GPUShadeInput *shi, GPUShadeResult *shr, GPULamp *la
 				GPU_link(mat, "shade_wardiso_spec", vn, lv, view,
 				         GPU_uniform(&ma->rms), &specfac);
 			}
+			else if (ma->spec_shader == MA_SPEC_GGX) {
+				GPU_link(mat, "shade_ggx_spec", vn, lv, view,
+				         GPU_uniform(&ma->roughness), GPU_uniform(&ma->refrac), &specfac);
+			}
 			else {
 				GPU_link(mat, "shade_toon_spec", vn, lv, view,
 				         GPU_uniform(&ma->param[2]), GPU_uniform(&ma->param[3]), &specfac);
