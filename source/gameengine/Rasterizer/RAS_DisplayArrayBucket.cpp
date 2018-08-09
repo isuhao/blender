@@ -80,14 +80,18 @@ RAS_DisplayArrayBucket::RAS_DisplayArrayBucket(RAS_MaterialBucket *bucket, RAS_D
 	m_batchingNode[1] = RAS_DisplayArrayDownwardNode(this, &m_nodeData,
 			&RAS_DisplayArrayBucket::RunBatchingNode<true>, nullptr);
 
-	m_textNode[0] = RAS_DisplayArrayDownwardNode(this, &m_nodeData,
+	m_downwardTextNode[0] = RAS_DisplayArrayDownwardNode(this, &m_nodeData,
 			&RAS_DisplayArrayBucket::RunDownwardNode<false, false, true>, nullptr);
-	m_textNode[1] = RAS_DisplayArrayDownwardNode(this, &m_nodeData,
+	m_downwardTextNode[1] = RAS_DisplayArrayDownwardNode(this, &m_nodeData,
 			&RAS_DisplayArrayBucket::RunDownwardNode<true, false, true>, nullptr);
 
-	m_upwardNode[0] = RAS_DisplayArrayUpwardNode(this, &m_nodeData,
-			&RAS_DisplayArrayBucket::BindUpwardNode, &RAS_DisplayArrayBucket::UnbindUpwardNode);
-	m_upwardNode[1] = RAS_DisplayArrayUpwardNode(this, &m_nodeData, nullptr, nullptr);
+	if (m_bucket->GetMaterial()->IsText()) {
+		m_upwardNode = RAS_DisplayArrayUpwardNode(this, &m_nodeData, nullptr, nullptr);
+	}
+	else {
+		m_upwardNode = RAS_DisplayArrayUpwardNode(this, &m_nodeData,
+				&RAS_DisplayArrayBucket::BindUpwardNode, &RAS_DisplayArrayBucket::UnbindUpwardNode);
+	}
 
 	if (m_displayArray) {
 		m_arrayStorage = &m_displayArray->GetStorage();
@@ -220,16 +224,15 @@ void RAS_DisplayArrayBucket::GenerateTree(RAS_MaterialDownwardNode& downwardRoot
 		downwardRoot.AddChild(&m_batchingNode[sort]);
 	}
 	else if (sort) {
-		RAS_DisplayArrayUpwardNode& upwardNode = m_upwardNode[text];
 		for (RAS_MeshSlot *slot : m_activeMeshSlots) {
-			slot->GenerateTree(upwardNode, upwardLeafs, polySort);
+			slot->GenerateTree(m_upwardNode, upwardLeafs, polySort);
 		}
 
-		upwardNode.SetParent(&upwardRoot);
+		m_upwardNode.SetParent(&upwardRoot);
 	}
 	else {
 		if (text) {
-			downwardRoot.AddChild(&m_textNode[shaderOverride]);
+			downwardRoot.AddChild(&m_downwardTextNode[shaderOverride]);
 		}
 		else {
 			downwardRoot.AddChild(&m_downwardNode[shaderOverride]);

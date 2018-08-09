@@ -78,9 +78,8 @@ private:
 	// Override.
 	RAS_DisplayArrayDownwardNode m_downwardNode[2]; // TODO pas de Unbind
 	// Override.
-	RAS_DisplayArrayDownwardNode m_textNode[2];
-	// Text.
-	RAS_DisplayArrayUpwardNode m_upwardNode[2];
+	RAS_DisplayArrayDownwardNode m_downwardTextNode[2];
+	RAS_DisplayArrayUpwardNode m_upwardNode;
 	// Override / Sort.
 	RAS_DisplayArrayDownwardNode m_instancingNode[2][2];
 	// Sort.

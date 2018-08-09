@@ -73,20 +73,21 @@ void RAS_MeshSlot::ConstructNodes()
 {
 	if (m_displayArrayBucket->GetBucket()->GetMaterial()->IsText()) {
 		m_node[0] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
-				&RAS_MeshSlot::RunNode<false, false, true, true>, nullptr);
-	}
-
-	if (m_displayArrayBucket->ApplyMatrix()) {
-		m_node[0] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
-				&RAS_MeshSlot::RunNode<false, false, false, true>, nullptr);
-		m_node[1] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
-				&RAS_MeshSlot::RunNode<false, true, false, true>, nullptr);
+				&RAS_MeshSlot::RunNode<false, false, true, false>, nullptr);
 	}
 	else {
-		m_node[0] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
-				&RAS_MeshSlot::RunNode<false, false, false, false>, nullptr);
-		m_node[1] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
-				&RAS_MeshSlot::RunNode<false, true, false, false>, nullptr);
+		if (m_displayArrayBucket->ApplyMatrix()) {
+			m_node[0] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
+					&RAS_MeshSlot::RunNode<false, false, false, true>, nullptr);
+			m_node[1] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
+					&RAS_MeshSlot::RunNode<false, true, false, true>, nullptr);
+		}
+		else {
+			m_node[0] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
+					&RAS_MeshSlot::RunNode<false, false, false, false>, nullptr);
+			m_node[1] = RAS_MeshSlotUpwardNode(this, &dummyNodeData,
+					&RAS_MeshSlot::RunNode<false, true, false, false>, nullptr);
+		}
 	}
 }
 
