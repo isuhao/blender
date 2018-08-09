@@ -72,7 +72,7 @@ struct RAS_DisplayArrayNodeData
 	RAS_DisplayArray *m_array;
 	RAS_AttributeArrayStorage *m_attribStorage;
 	RAS_DisplayArrayStorage *m_arrayStorage;
-	bool m_applyMatrix;
+	bool m_batching;
 };
 
 struct RAS_MeshSlotNodeData
