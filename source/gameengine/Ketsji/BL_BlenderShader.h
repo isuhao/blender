@@ -76,7 +76,7 @@ public:
 	const RAS_AttributeArray::AttribList GetAttribs(const RAS_Mesh::LayersInfo& layersInfo) const;
 
 	void UpdateLights(RAS_Rasterizer *rasty);
-	void Update(RAS_MeshSlot *ms, RAS_Rasterizer *rasty);
+	void Update(RAS_MeshSlot *ms, short matPassIndex, RAS_Rasterizer *rasty);
 
 	/// Return true if the shader uses a special vertex shader for geometry instancing.
 	bool UseInstancing() const;

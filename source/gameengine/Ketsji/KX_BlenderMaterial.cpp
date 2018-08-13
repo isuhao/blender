@@ -47,7 +47,8 @@ KX_BlenderMaterial::KX_BlenderMaterial(Material *mat, const std::string& name)
 	m_shader(nullptr),
 	m_blenderShader(nullptr),
 	m_scene(nullptr),
-	m_userDefBlend(false)
+	m_userDefBlend(false),
+	m_passIndex(mat->index)
 {
 	// Save material data to restore on exit
 	m_savedData.r = m_material->r;
@@ -371,7 +372,7 @@ void KX_BlenderMaterial::ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rast
 		rasty->ProcessLighting(UsesLighting(), camtrans);
 	}
 	else if (m_blenderShader) {
-		m_blenderShader->Update(ms, rasty);
+		m_blenderShader->Update(ms, m_passIndex, rasty);
 
 		/* we do blend modes here, because they can change per object
 		 * with the same material due to obcolor/obalpha */
@@ -580,6 +581,7 @@ PyAttributeDef KX_BlenderMaterial::Attributes[] = {
 	EXP_PYATTRIBUTE_RW_FUNCTION("emit", KX_BlenderMaterial, pyattr_get_emit, pyattr_set_emit),
 	EXP_PYATTRIBUTE_RW_FUNCTION("ambient", KX_BlenderMaterial, pyattr_get_ambient, pyattr_set_ambient),
 	EXP_PYATTRIBUTE_RW_FUNCTION("specularAlpha", KX_BlenderMaterial, pyattr_get_specular_alpha, pyattr_set_specular_alpha),
+	EXP_PYATTRIBUTE_SHORT_RW("passIndex", 0, SHRT_MAX, false, KX_BlenderMaterial, m_passIndex),
 
 	EXP_PYATTRIBUTE_NULL //Sentinel
 };

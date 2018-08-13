@@ -113,6 +113,7 @@ private:
 	KX_Scene *m_scene;
 	bool m_userDefBlend;
 	RAS_Rasterizer::BlendFunc m_blendFunc[2];
+	short m_passIndex;
 
 	struct {
 		float r, g, b, a;

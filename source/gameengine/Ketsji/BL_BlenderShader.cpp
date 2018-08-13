@@ -39,6 +39,8 @@
 
 #include "KX_Scene.h"
 
+#include "BLI_hash.h"
+
 #include <cstring>
 
 BL_BlenderShader::BL_BlenderShader(KX_Scene *scene, struct Material *ma,
@@ -144,7 +146,7 @@ void BL_BlenderShader::UpdateLights(RAS_Rasterizer *rasty)
 	GPU_material_update_lamps(m_gpuMat, rasty->GetViewMatrix().Data(), rasty->GetViewInvMatrix().Data());
 }
 
-void BL_BlenderShader::Update(RAS_MeshSlot *ms, RAS_Rasterizer *rasty)
+void BL_BlenderShader::Update(RAS_MeshSlot *ms, short matPassIndex, RAS_Rasterizer *rasty)
 {
 	if (!GPU_material_bound(m_gpuMat)) {
 		return;
@@ -153,8 +155,15 @@ void BL_BlenderShader::Update(RAS_MeshSlot *ms, RAS_Rasterizer *rasty)
 	RAS_MeshUser *meshUser = ms->m_meshUser;
 	const float (&obcol)[4] = meshUser->GetColor().Data();
 
+	float objectInfo[3];
+	if (GPU_get_material_builtins(m_gpuMat) & GPU_OBJECT_INFO) {
+		objectInfo[0] = meshUser->GetPassIndex();
+		objectInfo[1] = matPassIndex;
+		objectInfo[2] = BLI_hash_int_2d((uintptr_t)meshUser->GetClientObject(), 0) / ((float)0xFFFFFFFF);
+	}
+
 	GPU_material_bind_uniforms(m_gpuMat, meshUser->GetMatrix().Data(), rasty->GetViewMatrix().Data(),
-			obcol, meshUser->GetLayer(), 1.0f, nullptr, nullptr);
+			obcol, meshUser->GetLayer(), 1.0f, nullptr, objectInfo);
 
 	m_alphaBlend = GPU_material_alpha_blend(m_gpuMat, obcol);
 }
