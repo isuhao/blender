@@ -570,6 +570,7 @@ static bool py_bvhtree_overlap_cb(void *userdata, int index_a, int index_b, int 
 		}
 	}
 
+	printf("%f\n", data->epsilon);
 	return (isect_tri_tri_epsilon_v3(UNPACK3(tri_a_co), UNPACK3(tri_b_co), ix_pair[0], ix_pair[1], data->epsilon) &&
 	        ((verts_shared == 0) || (len_squared_v3v3(ix_pair[0], ix_pair[1]) > data->epsilon)));
 }

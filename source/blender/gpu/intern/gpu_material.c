@@ -356,7 +356,7 @@ bool GPU_material_use_instancing(GPUMaterial *material)
 	return material->use_instancing;
 }
 
-void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride)
+void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffset, void *positionoffset, void *coloroffset)
 {
 	// Matrix
 	if (material->ininstmatloc != -1) {
@@ -364,6 +364,7 @@ void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffs
 		glEnableVertexAttribArrayARB(material->ininstmatloc + 1);
 		glEnableVertexAttribArrayARB(material->ininstmatloc + 2);
 
+		const unsigned short stride = sizeof(float) * 9;
 		glVertexAttribPointerARB(material->ininstmatloc, 3, GL_FLOAT, GL_FALSE, stride, matrixoffset);
 		glVertexAttribPointerARB(material->ininstmatloc + 1, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 3 * sizeof(float));
 		glVertexAttribPointerARB(material->ininstmatloc + 2, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 6 * sizeof(float));
@@ -376,14 +377,14 @@ void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffs
 	// Position
 	if (material->ininstposloc != -1) {
 		glEnableVertexAttribArrayARB(material->ininstposloc);
-		glVertexAttribPointerARB(material->ininstposloc, 3, GL_FLOAT, GL_FALSE, stride, positionoffset);
+		glVertexAttribPointerARB(material->ininstposloc, 3, GL_FLOAT, GL_FALSE, 0, positionoffset);
 		glVertexAttribDivisorARB(material->ininstposloc, 1);
 	}
 
 	// Color
 	if (material->ininstcolloc != -1) {
 		glEnableVertexAttribArrayARB(material->ininstcolloc);
-		glVertexAttribPointerARB(material->ininstcolloc, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, coloroffset);
+		glVertexAttribPointerARB(material->ininstcolloc, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, coloroffset);
 		glVertexAttribDivisorARB(material->ininstcolloc, 1);
 	}
 }

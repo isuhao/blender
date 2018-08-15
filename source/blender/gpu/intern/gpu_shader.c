@@ -741,10 +741,10 @@ void GPU_shader_bind_attribute(GPUShader *shader, int location, const char *name
 }
 
 // Used only for VSM shader with geometry instancing support.
-void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, void *positionoffset, unsigned int stride)
+void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, void *positionoffset)
 {
-	int posloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_POSITION_ATTRIB));
-	int matloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_MATRIX_ATTRIB));
+	const int posloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_POSITION_ATTRIB));
+	const int matloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_MATRIX_ATTRIB));
 
 	// Matrix
 	if (matloc != -1) {
@@ -752,6 +752,7 @@ void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, vo
 		glEnableVertexAttribArrayARB(matloc + 1);
 		glEnableVertexAttribArrayARB(matloc + 2);
 
+		const unsigned short stride = sizeof(float) * 9;
 		glVertexAttribPointerARB(matloc, 3, GL_FLOAT, GL_FALSE, stride, matrixoffset);
 		glVertexAttribPointerARB(matloc + 1, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 3 * sizeof(float));
 		glVertexAttribPointerARB(matloc + 2, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 6 * sizeof(float));
@@ -764,7 +765,7 @@ void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, vo
 	// Position
 	if (posloc != -1) {
 		glEnableVertexAttribArrayARB(posloc);
-		glVertexAttribPointerARB(posloc, 3, GL_FLOAT, GL_FALSE, stride, positionoffset);
+		glVertexAttribPointerARB(posloc, 3, GL_FLOAT, GL_FALSE, 0, positionoffset);
 		glVertexAttribDivisorARB(posloc, 1);
 	}
 }

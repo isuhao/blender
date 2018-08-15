@@ -242,12 +242,12 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 
 	const unsigned int nummeshslots = m_activeMeshSlots.size();
 
+	RAS_IPolyMaterial *material = materialData->m_material;
+
 	// Create the instancing buffer only if it needed.
 	if (!m_instancingBuffer) {
-		m_instancingBuffer.reset(new RAS_InstancingBuffer());
+		m_instancingBuffer.reset(new RAS_InstancingBuffer(material->GetInstancingAttributes()));
 	}
-
-	RAS_IPolyMaterial *material = materialData->m_material;
 
 	// Bind the instancing buffer to work on it.
 	m_instancingBuffer->Realloc(nummeshslots);
@@ -287,18 +287,10 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 
 	// Bind all vertex attributs for the used material and the given buffer offset.
 	if (managerData->m_shaderOverride) {
-		rasty->ActivateOverrideShaderInstancing(
-			m_instancingBuffer->GetMatrixOffset(),
-			m_instancingBuffer->GetPositionOffset(),
-			m_instancingBuffer->GetStride());
+		rasty->ActivateOverrideShaderInstancing(m_instancingBuffer.get());
 	}
 	else {
-		material->ActivateInstancing(
-			rasty,
-			m_instancingBuffer->GetMatrixOffset(),
-			m_instancingBuffer->GetPositionOffset(),
-			m_instancingBuffer->GetColorOffset(),
-			m_instancingBuffer->GetStride());
+		material->ActivateInstancing(rasty, m_instancingBuffer.get());
 	}
 
 	/* Because the geometry instancing use setting for all instances we use the original alpha blend.
@@ -386,4 +378,6 @@ void RAS_DisplayArrayBucket::ChangeMaterialBucket(RAS_MaterialBucket *bucket)
 	// Change of material update looking.
 	RAS_IPolyMaterial *material = bucket->GetMaterial();
 	material->MoveUpdateClient(&m_materialUpdateClient, RAS_IPolyMaterial::ATTRIBUTES_MODIFIED);
+
+	m_instancingBuffer.reset(nullptr);
 }

@@ -338,10 +338,10 @@ bool KX_BlenderMaterial::UseInstancing() const
 	return m_material->shade_flag & MA_INSTANCING;
 }
 
-void KX_BlenderMaterial::ActivateInstancing(RAS_Rasterizer *rasty, void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride)
+void KX_BlenderMaterial::ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer)
 {
 	if (m_blenderShader) {
-		m_blenderShader->ActivateInstancing(matrixoffset, positionoffset, coloroffset, stride);
+		m_blenderShader->ActivateInstancing(buffer);
 	}
 }
 
@@ -436,6 +436,11 @@ const RAS_AttributeArray::AttribList KX_BlenderMaterial::GetAttribs(const RAS_Me
 	}
 
 	return {};
+}
+
+RAS_InstancingBuffer::Usage KX_BlenderMaterial::GetInstancingAttribs() const
+{
+	if ()
 }
 
 std::string KX_BlenderMaterial::GetName()

@@ -36,16 +36,20 @@ typedef int (*DMSetMaterial)(int mat_nr, void *attribs);
 	#include "GPU_buffers.h"
 }
 
-RAS_InstancingBuffer::RAS_InstancingBuffer()
+RAS_InstancingBuffer::RAS_InstancingBuffer(Usage usage)
 	:m_vbo(nullptr),
-	m_matrixOffset(nullptr),
-	m_positionOffset(nullptr),
-	m_colorOffset(nullptr),
-	m_stride(sizeof(RAS_InstancingBuffer::InstancingObject))
+	m_memorySize(0),
+	m_usage(usage)
 {
-	m_matrixOffset = (void *)((InstancingObject *)nullptr)->matrix;
-	m_positionOffset = (void *)((InstancingObject *)nullptr)->position;
-	m_colorOffset = (void *)((InstancingObject *)nullptr)->color;
+	if (m_usage & USE_MATRIX) {
+		m_memorySize += sizeof(float) * 9;
+	}
+	if (m_usage & USE_POSITION) {
+		m_memorySize += sizeof(float) * 9;
+	}
+	if (m_usage & USE_COLOR) {
+		m_memorySize += sizeof(float) * 9;
+	}
 }
 
 RAS_InstancingBuffer::~RAS_InstancingBuffer()
@@ -60,7 +64,7 @@ void RAS_InstancingBuffer::Realloc(unsigned int size)
 	if (m_vbo) {
 		GPU_buffer_free(m_vbo);
 	}
-	m_vbo = GPU_buffer_alloc(m_stride * size);
+	m_vbo = GPU_buffer_alloc(m_memorySize * size);
 }
 
 void RAS_InstancingBuffer::Bind()
@@ -73,11 +77,14 @@ void RAS_InstancingBuffer::Unbind()
 	GPU_buffer_unbind(m_vbo, GPU_BINDING_ARRAY);
 }
 
-void RAS_InstancingBuffer::Update(RAS_Rasterizer *rasty, int drawingmode, RAS_MeshSlotList &meshSlots)
+void RAS_InstancingBuffer::Update(RAS_Rasterizer *rasty, int drawingmode, const RAS_MeshSlotList &meshSlots)
 {
-	InstancingObject *buffer = (InstancingObject *)GPU_buffer_lock_stream(m_vbo, GPU_BINDING_ARRAY);
+	void *buffer = GPU_buffer_lock_stream(m_vbo, GPU_BINDING_ARRAY);
 
-	for (unsigned int i = 0, size = meshSlots.size(); i < size; ++i) {
+	const unsigned int count = meshSlots.size();
+
+	if (m_usage & USE_MATRIX) {
+		for (unsigned int i = 0; i < count; ++i) {
 		RAS_MeshSlot *ms = meshSlots[i];
 		InstancingObject& data = buffer[i];
 		float mat[16];

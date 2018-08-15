@@ -37,27 +37,32 @@ struct GPUBuffer;
 
 class RAS_InstancingBuffer
 {
+public:
+	enum Usage
+	{
+		USE_NONE
+		USE_MATRIX = (1 << 0),
+		USE_POSITION = (1 << 1),
+		USE_COLOR = (1 << 2)
+	};
+
+private:
 	/// The OpenGL VBO.
 	GPUBuffer *m_vbo;
 	/// The matrix offset in the VBO.
-	void *m_matrixOffset;
+	intptr_t m_matrixOffset;
 	/// The position offset in the VBO.
-	void *m_positionOffset;
+	intptr_t m_positionOffset;
 	/// The color offset in the VBO.
-	void *m_colorOffset;
-	/// The instance structure stride in the VBO.
-	unsigned int m_stride;
+	intptr_t m_colorOffset;
 
-	/// Structure used to store object info for geometry instancing objects render.
-	struct InstancingObject
-	{
-		float matrix[9];
-		float position[3];
-		unsigned char color[4];
-	};
+	/// Amount of memory used for one object.
+	intptr_t m_memorySize;
+
+	Usage m_usage;
 
 public:
-	RAS_InstancingBuffer();
+	RAS_InstancingBuffer(Usage usage);
 	virtual ~RAS_InstancingBuffer();
 
 	/// Realloc the VBO.
@@ -72,23 +77,19 @@ public:
 	 * \param drawingmode The material drawing mode used to detect a billboard/halo/shadow material.
 	 * \param meshSlots The list of all non-culled and visible mesh slots (= game object).
 	 */
-	void Update(RAS_Rasterizer *rasty, int drawingmode, RAS_MeshSlotList &meshSlots);
+	void Update(RAS_Rasterizer *rasty, int drawingmode, const RAS_MeshSlotList &meshSlots);
 
-	inline void *GetMatrixOffset() const
+	inline intptr_t GetMatrixOffset() const
 	{
 		return m_matrixOffset;
 	}
-	inline void *GetPositionOffset() const
+	inline intptr_t GetPositionOffset() const
 	{
 		return m_positionOffset;
 	}
-	inline void *GetColorOffset() const
+	inline intptr_t GetColorOffset() const
 	{
 		return m_colorOffset;
-	}
-	inline unsigned int GetStride() const
-	{
-		return m_stride;
 	}
 };
 
