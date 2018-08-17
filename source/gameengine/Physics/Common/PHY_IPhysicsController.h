@@ -151,7 +151,7 @@ public:
 	virtual void RemoveCompoundChild(PHY_IPhysicsController *child) = 0;
 
 	virtual bool IsDynamic() = 0;
-	virtual bool IsCompound() = 0;
+	virtual bool IsCompoundRoot() = 0;
 	virtual bool IsCompoundChild() const = 0;
 	virtual bool IsDynamicsSuspended() const = 0;
 	virtual bool IsPhysicsSuspended() = 0;

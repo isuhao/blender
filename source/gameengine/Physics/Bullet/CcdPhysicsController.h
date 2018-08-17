@@ -150,12 +150,16 @@ class CcdCompoundShape : public CM_RefCount<CcdCompoundShape>
 {
 private:
 	btCompoundShape *m_shape;
+	CcdPhysicsController *m_rootCtrl;
 
 public:
-	CcdCompoundShape();
+	CcdCompoundShape(CcdPhysicsController *rootCtrl);
 	~CcdCompoundShape();
 
 	btCompoundShape *GetShape() const;
+	CcdPhysicsController *GetRootCtrl() const;
+	unsigned int GetChildIndex(btCollisionShape *childShape) const;
+	btTransform GetChildRelativeTrans(const btTransform& childTrans) const;
 };
 
 struct CcdConstructionInfo {
@@ -226,7 +230,7 @@ struct CcdConstructionInfo {
 		m_bSensor(false),
 		m_bCharacter(false),
 		m_bGimpact(false),
-		m_isCompound(false),
+		m_isCompoundRoot(false),
 		m_collisionFilterGroup(DynamicFilter),
 		m_collisionFilterMask(AllFilter),
 		m_collisionGroup(0xFFFF),
@@ -343,7 +347,7 @@ struct CcdConstructionInfo {
 	bool m_bCharacter;
 	/// use Gimpact for mesh body
 	bool m_bGimpact;
-	bool m_isCompound;
+	bool m_isCompoundRoot;
 
 	/** optional use of collision group/mask:
 	 * only collision with object goups that match the collision mask.
@@ -812,9 +816,9 @@ public:
 
 	virtual bool IsPhysicsSuspended();
 
-	virtual bool IsCompound()
+	virtual bool IsCompoundRoot()
 	{
-		return m_cci.m_isCompound;
+		return m_cci.m_isCompoundRoot;
 	}
 
 	virtual bool IsCompoundChild() const;

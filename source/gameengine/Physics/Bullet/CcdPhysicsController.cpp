@@ -191,14 +191,13 @@ CcdPhysicsController::CcdPhysicsController(const CcdConstructionInfo& ci)
 	m_collisionShape = ci.m_collisionShape;
 	m_compoundShape = nullptr;
 	// apply scaling before creating rigid body
-	SetShapeScaling(m_collisionShape, m_cci.m_scaling);
 	// shape info is shared, increment ref count
 	m_shapeInfo = ci.m_shapeInfo;
 	if (m_shapeInfo) {
 		m_shapeInfo->AddRef();
 	}
 
-	if (IsCompound()) {
+	if (IsCompoundRoot()) {
 		InitCompoundShape();
 	}
 
@@ -212,6 +211,7 @@ CcdPhysicsController::CcdPhysicsController(const CcdConstructionInfo& ci)
 	m_suspended = false;
 
 	CreateBody();
+	SetShapeScaling(m_collisionShape, m_cci.m_scaling);
 }
 
 void CcdPhysicsController::addCcdConstraintRef(btTypedConstraint *c)
@@ -791,14 +791,13 @@ void CcdPhysicsController::PostProcessReplica(class PHY_IMotionState *motionstat
 	if (m_shapeInfo) {
 		m_shapeInfo->AddRef();
 		m_collisionShape = m_shapeInfo->CreateBulletShape(m_cci.m_margin, m_cci.m_bGimpact, !m_cci.m_bSoft);
-		SetShapeScaling(m_collisionShape, m_cci.m_scaling);
 	}
 
 	// Detect if the controller was in a compound shape.
 	const bool isCompoundChild = (m_compoundShape != nullptr);
 	m_compoundShape = nullptr;
 
-	if (IsCompound()) {
+	if (IsCompoundRoot()) {
 		InitCompoundShape();
 	}
 
@@ -829,12 +828,14 @@ void CcdPhysicsController::PostProcessReplica(class PHY_IMotionState *motionstat
 	}
 
 	// Re add the children to the compound shape.
-	if (isCompoundChild && !IsCompound()) {
+	if (isCompoundChild && !IsCompoundRoot()) { // TODO
 		PHY_IPhysicsController *compoundParent = GetCompoundParent();
 		if (compoundParent) {
 			compoundParent->AddCompoundChild(this);
 		}
 	}
+
+	SetShapeScaling(m_collisionShape, m_cci.m_scaling);
 }
 
 void CcdPhysicsController::SetPhysicsEnvironment(class PHY_IPhysicsEnvironment *env)
@@ -971,6 +972,17 @@ void CcdPhysicsController::SetShapeScaling(btCollisionShape *shape, const btVect
 		{
 			break;
 		}
+	}
+
+	if (m_compoundShape) {
+		btCompoundShape *compound = m_compoundShape->GetShape();
+		btTransform childTrans;
+		btRigidBody *childBody = GetRigidBody();
+		childBody->getMotionState()->getWorldTransform(childTrans);
+
+		const unsigned int index = m_compoundShape->GetChildIndex(m_collisionShape);
+		const btTransform shapeTrans = m_compoundShape->GetChildRelativeTrans(childTrans);
+		compound->updateChildTransform(index, shapeTrans, true); // TODO les enfant ne detectent pas de modification de transformation et leur echelle relative est toujours identique… voir ge_lazy_update
 	}
 
 	if (m_cci.m_mass) {
@@ -1111,7 +1123,7 @@ void CcdPhysicsController::SetScaling(const mt::vec3& scale)
 
 		if (m_object) {
 			m_object->activate(true); // without this, sleeping objects scale wont be applied in bullet if python changes the scale - Campbell.
-			SetShapeScaling(m_object->getCollisionShape(), m_cci.m_scaling);
+			SetShapeScaling(m_collisionShape, m_cci.m_scaling);
 
 			btRigidBody *body = GetRigidBody();
 			if (body) {
@@ -1518,7 +1530,7 @@ void CcdPhysicsController::SetCompoundShape(CcdCompoundShape *shape)
 void CcdPhysicsController::InitCompoundShape()
 {
 	// Create the compound shape manually as we already have the child shape.
-	m_compoundShape = new CcdCompoundShape();
+	m_compoundShape = new CcdCompoundShape(this);
 	m_compoundShape->GetShape()->addChildShape(btTransform::getIdentity(), m_collisionShape);
 }
 
@@ -1558,7 +1570,7 @@ void CcdPhysicsController::ReplaceCompoundChild(btCollisionShape *oldShape, btCo
  */
 void CcdPhysicsController::AddCompoundChild(PHY_IPhysicsController *child)
 {
-	if (!IsCompound()) {
+	if (!IsCompoundRoot()) {
 		return;
 	}
 	// other controller must be a bullet controller too
@@ -1583,21 +1595,9 @@ void CcdPhysicsController::AddCompoundChild(PHY_IPhysicsController *child)
 	btCompoundShape *compoundShape = m_compoundShape->GetShape();
 
 	// compute relative transformation between parent and child
-	btTransform rootTrans;
 	btTransform childTrans;
-	rootBody->getMotionState()->getWorldTransform(rootTrans);
 	childBody->getMotionState()->getWorldTransform(childTrans);
-	btVector3 rootScale = compoundShape->getLocalScaling();
-	rootScale[0] = 1.0 / rootScale[0];
-	rootScale[1] = 1.0 / rootScale[1];
-	rootScale[2] = 1.0 / rootScale[2];
-	/* relative pos = parent_rot^-1 * ((parent_pos-child_pos)/parent_scale)
-	 * relative rot = parent_rot^-1 * child_rot
-	 */
-	const btMatrix3x3 rootRotInverse = rootTrans.getBasis().transpose();
-	const btVector3 relativePos = rootRotInverse * ((childTrans.getOrigin() - rootTrans.getOrigin()) * rootScale);
-	const btMatrix3x3 relativeRot = rootRotInverse * childTrans.getBasis();
-	const btTransform shapeTrans(relativeRot, relativePos);
+	const btTransform shapeTrans = m_compoundShape->GetChildRelativeTrans(childTrans);
 
 	// add bullet collision shape to parent compound collision shape
 	compoundShape->addChildShape(shapeTrans, childShape);
@@ -1615,7 +1615,7 @@ void CcdPhysicsController::AddCompoundChild(PHY_IPhysicsController *child)
  */
 void CcdPhysicsController::RemoveCompoundChild(PHY_IPhysicsController *child)
 {
-	if (!IsCompound()) {
+	if (!IsCompoundRoot()) {
 		return;
 	}
 	// other controller must be a bullet controller too
@@ -1711,7 +1711,7 @@ PHY_IPhysicsController *CcdPhysicsController::GetCompoundParent() const
 	PHY_IPhysicsController *parentIt = m_parent;
 	PHY_IPhysicsController *compoundParent = nullptr;
 	while (parentIt) {
-		if (parentIt->IsCompound()) {
+		if (parentIt->IsCompoundRoot()) { // TODO
 			compoundParent = parentIt;
 		}
 		parentIt = parentIt->GetParent();
@@ -2184,8 +2184,9 @@ CcdShapeConstructionInfo::~CcdShapeConstructionInfo()
 	}
 }
 
-CcdCompoundShape::CcdCompoundShape()
-	:m_shape(new btCompoundShape())
+CcdCompoundShape::CcdCompoundShape(CcdPhysicsController *rootCtrl)
+	:m_shape(new btCompoundShape()),
+	m_rootCtrl(rootCtrl)
 {
 }
 
@@ -2198,3 +2199,37 @@ btCompoundShape *CcdCompoundShape::GetShape() const
 {
 	return m_shape;
 }
+
+CcdPhysicsController *CcdCompoundShape::GetRootCtrl() const
+{
+	return m_rootCtrl;
+}
+
+unsigned int CcdCompoundShape::GetChildIndex(btCollisionShape *childShape) const
+{
+	for (unsigned int i = 0, size = m_shape->getNumChildShapes(); i < size; ++i) {
+		if (m_shape->getChildShape(i) == childShape) {
+			return i;
+		}
+	}
+
+	BLI_assert(false);
+	return 0;
+}
+
+btTransform CcdCompoundShape::GetChildRelativeTrans(const btTransform& childTrans) const
+{
+	btTransform rootTrans;
+	btRigidBody *rootBody = m_rootCtrl->GetRigidBody();
+	rootBody->getMotionState()->getWorldTransform(rootTrans);
+
+	/* relative pos = parent_rot^-1 * ((parent_pos-child_pos))
+	 * relative rot = parent_rot^-1 * child_rot
+	 */
+	const btMatrix3x3 rootRotInverse = rootTrans.getBasis().transpose();
+	const btVector3 relativePos = rootRotInverse * (childTrans.getOrigin() - rootTrans.getOrigin());
+	const btMatrix3x3 relativeRot = rootRotInverse * childTrans.getBasis();
+
+	return btTransform(relativeRot, relativePos);
+}
+

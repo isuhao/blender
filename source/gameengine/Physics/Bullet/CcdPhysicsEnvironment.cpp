@@ -2996,7 +2996,7 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 	ci.m_bSensor = isbulletsensor;
 	ci.m_bCharacter = isbulletchar;
 	ci.m_bGimpact = useGimpact;
-	ci.m_isCompound = hasCompoundChildren;
+	ci.m_isCompoundRoot = hasCompoundChildren;
 	mt::vec3 scaling = gameobj->NodeGetWorldScaling();
 	ci.m_scaling.setValue(scaling[0], scaling[1], scaling[2]);
 	CcdPhysicsController *physicscontroller = new CcdPhysicsController(ci);
