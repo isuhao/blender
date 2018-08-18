@@ -68,6 +68,7 @@
 #include "RAS_BoundingBoxManager.h"
 #include "RAS_BucketManager.h"
 #include "RAS_Deformer.h"
+#include "RAS_ILightObject.h"
 
 #include "EXP_FloatValue.h"
 #include "SCA_IController.h"
@@ -1416,9 +1417,46 @@ void KX_Scene::RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Ra
 	KX_BlenderMaterial::EndFrame(rasty);
 }
 
-void KX_Scene::RenderTextureRenderers(RAS_Rasterizer *rasty, const KX_SceneRenderData& sceneData)
+void KX_Scene::UpdateLights(RAS_Rasterizer *rasty)
 {
-	m_rendererManager->Render(rasty, sceneData);
+	rasty->SetAuxilaryClientInfo(this);
+
+	for (KX_LightObject *light : m_lightlist) {
+		light->Update();
+	}
+}
+
+void KX_Scene::ScheduleShadowsRender()
+{
+	for (KX_LightObject *light : m_lightlist) {
+		RAS_ILightObject *raslight = light->GetLightData();
+		if (!light->GetVisible() || !raslight->HasShadowBuffer() || !raslight->NeedShadowUpdate()) {
+			continue;
+		}
+
+		mt::mat4 viewmat;
+		mt::mat4 projmat;
+		raslight->GetShadowMatrix(viewmat, projmat);
+		const SG_Frustum frustum(projmat * viewmat);
+
+		KX_TextureRenderData textureData;
+		textureData.m_mode = KX_TextureRenderData::MODE_NONE;
+		textureData.m_clearMode = 
+				(RAS_Rasterizer::ClearBit)(RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT | RAS_Rasterizer::RAS_COLOR_BUFFER_BIT);
+		textureData.m_drawingMode = RAS_Rasterizer::RAS_SHADOW;
+		textureData.m_viewMatrix = viewmat;
+		textureData.m_progMatrix = projmat;
+		textureData.m_camTrans = mt::mat4::ToAffineTransform(viewmat).Inverse();
+		textureData.m_frustum = frustum;
+		textureData.m_cullingLayer = raslight->GetShadowLayer();
+
+		textureData.m_bind = [raslight]{raslight->BindShadowBuffer();};
+		textureData.m_unbind = [raslight]{raslight->UnbindShadowBuffer();};
+	}
+}
+
+void KX_Scene::ScheduleTexturesRender(const KX_SceneRenderData& sceneData)
+{
 }
 
 void KX_Scene::UpdateObjectLods(KX_Camera *cam, const std::vector<KX_GameObject *>& objects)

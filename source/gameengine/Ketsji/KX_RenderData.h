@@ -19,9 +19,13 @@ class KX_Camera;
 struct KX_TextureRenderData
 {
 	enum {
-		RENDER_WORLD,
-		UPDATE_LOD
+		MODE_NONE = 0,
+		MODE_RENDER_WORLD = (1 << 0),
+		MODE_UPDATE_LOD = (1 << 1)
 	} m_mode;
+
+	RAS_Rasterizer::ClearBit m_clearMode;
+	RAS_Rasterizer::DrawType m_drawingMode;
 
 	mt::mat4 m_viewMatrix;
 	mt::mat4 m_progMatrix;
@@ -29,6 +33,7 @@ struct KX_TextureRenderData
 	mt::vec3 m_position;
 
 	SG_Frustum m_frustum;
+	unsigned int m_cullingLayer;
 
 	float m_lodFactor;
 

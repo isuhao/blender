@@ -592,13 +592,18 @@ void KX_KetsjiEngine::Render()
 
 	KX_RenderData renderData = GetRenderData();
 
-	for (const KX_SceneRenderData& sceneData : renderData.m_sceneDataList) {
-		KX_Scene *scene = sceneData.m_scene;
-		// shadow buffers
-		RenderShadowBuffers(scene);
-		// Render only independent texture renderers here.
-		scene->RenderTextureRenderers(m_rasterizer, sceneData);
+	if (m_rasterizer->GetDrawingMode() != RAS_Rasterizer::RAS_TEXTURED) {
+		for (const KX_SceneRenderData& sceneData : renderData.m_sceneDataList) {
+			KX_Scene *scene = sceneData.m_scene;
+			scene->UpdateLights();
+			// shadow buffers
+			scene->ScheduleShadowsRender();
+			// Render only independent texture renderers here.
+			scene->ScheduleTexturesRender(sceneData);
+		}
 	}
+
+	RenderTextures();
 
 	const int width = m_canvas->GetWidth();
 	const int height = m_canvas->GetHeight();
@@ -780,52 +785,6 @@ void KX_KetsjiEngine::UpdateAnimations(KX_Scene *scene)
 	scene->UpdateAnimations(m_frameTime, (m_flags & RESTRICT_ANIMATION) != 0);
 }
 
-void KX_KetsjiEngine::RenderShadowBuffers(KX_Scene *scene)
-{
-	if (m_rasterizer->GetDrawingMode() != RAS_Rasterizer::RAS_TEXTURED) {
-		return;
-	}
-
-	EXP_ListValue<KX_LightObject> *lightlist = scene->GetLightList();
-
-	m_rasterizer->SetAuxilaryClientInfo(scene);
-
-	for (KX_LightObject *light : lightlist) {
-		light->Update();
-	}
-
-	for (KX_LightObject *light : lightlist) {
-		RAS_ILightObject *raslight = light->GetLightData();
-		if (light->GetVisible() && raslight->HasShadowBuffer() && raslight->NeedShadowUpdate()) {
-			mt::mat4 viewmat;
-			mt::mat4 projmat;
-			raslight->GetShadowMatrix(viewmat, projmat);
-			/* setup rasterizer transformations */
-			m_rasterizer->SetViewMatrix(viewmat);
-			m_rasterizer->SetProjectionMatrix(projmat);
-
-			const SG_Frustum frustum(projmat * viewmat);
-			const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(frustum, raslight->GetShadowLayer());
-
-			m_logger.StartLog(tc_animations);
-			UpdateAnimations(scene);
-			m_logger.StartLog(tc_rasterizer);
-
-			/* binds framebuffer object */
-			raslight->BindShadowBuffer();
-			/* render */
-			m_rasterizer->Clear(RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT | RAS_Rasterizer::RAS_COLOR_BUFFER_BIT);
-
-			const mt::mat3x4 camtrans = mt::mat4::ToAffineTransform(viewmat).Inverse();
-			// Send a nullptr off screen because the viewport is binding it's using its own private one.
-			scene->RenderBuckets(objects, RAS_Rasterizer::RAS_SHADOW, camtrans, 0, m_rasterizer, nullptr);
-
-			/* unbind framebuffer object, free camera */
-			raslight->UnbindShadowBuffer();
-		}
-	}
-}
-
 mt::mat4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoMode stereoMode,
                                                     RAS_Rasterizer::StereoEye eye, const RAS_Rect& viewport, const RAS_Rect& area) const
 {
@@ -905,6 +864,15 @@ mt::mat4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *
 	}
 
 	return projmat;
+}
+
+void KX_KetsjiEngine::RenderTexture(KX_Scene *scene, const KX_TextureRenderData& textureData)
+{
+	textureData.m_bind();
+
+	m_rasterizer->Clear(textureData.m_clearMode);
+
+	textureData.m_unbind();
 }
 
 // update graphics

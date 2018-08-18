@@ -273,7 +273,10 @@ public:
 	void RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Rasterizer::DrawType drawingMode,
 			const mt::mat3x4& cameratransform, unsigned short viewportIndex,
 			RAS_Rasterizer *rasty, RAS_OffScreen *offScreen);
-	void RenderTextureRenderers(RAS_Rasterizer *rasty, const KX_SceneRenderData& sceneData);
+
+	void UpdateLights(RAS_Rasterizer *rasty);
+	void ScheduleShadowsRender();
+	void ScheduleTexturesRender(const KX_SceneRenderData& sceneData);
 
 	/// Update all transforms according to the scenegraph.
 	static bool KX_ScenegraphUpdateFunc(SG_Node *node, void *gameobj, void *scene);
