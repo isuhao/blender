@@ -737,6 +737,36 @@ static float WardIso_Spec(const float n[3], const float l[3], const float v[3], 
 	return i;
 }
 
+// GGX For UPBGE
+
+static float GGX_spec(vec3 n, vec3 l, vec3 v, float roughness, float ior)
+{
+	float specfac;
+	float NdotL = dot(n, l);
+	float NdotV = dot(n, v);
+
+	if (NdotL < 0.0 || NdotV < 0.0) {
+		specfac = 0.0;
+	}
+	else {
+		float roughnessSqr = pow2f(roughness);
+		float NdotvSqr = pow2f(Ndotv);
+		vec3 H = normalize(l + v);
+		float NdotH = dot(n, H);
+		float VdotH = dot(v, H);
+		float D = roughnessSqr / (M_PI * pow2f(NdotH * NdotH * (roughnessSqr - 1.0f) + 1.0f));
+		float smithG = 2.0f / (1.0f + sqrt(1.0f + pow2f(roughness) * (1.0f - NdotvSqr) / NdotvSqr)); //function said NdotV now smithG_GGX_Optimized(NdotL, roughness);
+		float G = pow2f(smithG);
+		// fresnel
+		float c = VdotH;
+		float g = sqrt(ior * ior + c * c - 1.0);
+		float F = 0.5 * pow(g - c, 2.0) / pow(g + c, 2.0) * (1.0 + pow(c * (g + c) - 1.0, 2.0) / pow(c * (g - c) + 1.0, 2.0));
+		specfac = D * G * F / (4.0 * NdotL * NdotV);
+	}
+	
+	return specfac;
+}
+
 /* cartoon render diffuse */
 static float Toon_Diff(const float n[3], const float l[3], const float UNUSED(v[3]), float size, float smooth)
 {
